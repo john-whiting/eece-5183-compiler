@@ -2,6 +2,17 @@ use std::{collections::HashMap, iter::Peekable, str::Chars};
 
 use crate::token::Token;
 
+macro_rules! try_pop_next {
+    ($s: ident, $x:expr) => {
+        if $x {
+            $s.pop();
+            true
+        } else {
+            false
+        }
+    };
+}
+
 #[derive(Debug, PartialEq)]
 pub struct ScannerItem {
     pub token: Token,
@@ -12,7 +23,6 @@ pub struct ScannerItem {
 pub struct Scanner<'a> {
     // TODO: Optimize for memory (Allow for &str and &Token)
     identifiers: HashMap<String, Token>,
-    numeric_constants: HashMap<String, Token>,
     string_constants: HashMap<String, Token>,
 
     input: Peekable<Chars<'a>>,
@@ -54,7 +64,6 @@ impl<'a> Scanner<'a> {
 
         Self {
             identifiers,
-            numeric_constants: HashMap::new(),
             string_constants: HashMap::new(),
             input: input.chars().peekable(),
             line_count: 1,
@@ -66,10 +75,6 @@ impl<'a> Scanner<'a> {
     fn pop(&mut self) -> Option<char> {
         self.column_count += 1;
         self.input.next()
-    }
-
-    fn peek(&mut self) -> Option<&char> {
-        self.input.peek()
     }
 
     fn pop_next_valid(&mut self) -> Option<char> {
@@ -86,28 +91,28 @@ impl<'a> Scanner<'a> {
                 self.column_count = 0;
                 true
             }
-            '\r' if self.peek() == Some(&'\n') => {
-                // Remove extra newline
-                self.pop();
+            '\r' if try_pop_next!(self, self.input.peek() == Some(&'\n')) => {
                 is_comment = false;
                 self.line_count += 1;
                 self.column_count = 0;
                 true
             }
             // Start comment
-            '/' if self.peek() == Some(&'/') && !is_multiline_comment => {
+            '/' if self.input.peek() == Some(&'/') && !is_multiline_comment => {
                 is_comment = true;
                 true
             }
             // Start multiline comment
-            '/' if self.peek() == Some(&'*') => {
+            '/' if self.input.peek() == Some(&'*') => {
                 is_multiline_comment = true;
                 true
             }
             // End multiline comment
-            '*' if self.peek() == Some(&'/') && is_multiline_comment => {
-                // Remove extra /
-                self.pop();
+            '*' if try_pop_next!(
+                self,
+                is_multiline_comment && self.input.peek() == Some(&'/')
+            ) =>
+            {
                 is_multiline_comment = false;
                 true
             }
@@ -143,7 +148,7 @@ impl Iterator for Scanner<'_> {
 
         let c = c?;
 
-        let next_is_eq = self.peek() == Some(&'=');
+        let next_is_eq = self.input.peek() == Some(&'=');
 
         let token = match c {
             // Structure Symbols
@@ -164,30 +169,15 @@ impl Iterator for Scanner<'_> {
             '/' => Token::Divide,
 
             // Comparison Operators
-            '<' if next_is_eq => {
-                self.pop();
-                Token::LessThanEqual
-            }
+            '<' if try_pop_next!(self, next_is_eq) => Token::LessThanEqual,
             '<' => Token::LessThan,
-            '>' if next_is_eq => {
-                self.pop();
-                Token::GreaterThanEqual
-            }
+            '>' if try_pop_next!(self, next_is_eq) => Token::GreaterThanEqual,
             '>' => Token::GreaterThan,
-            '=' if next_is_eq => {
-                self.pop();
-                Token::Equal
-            }
-            '!' if next_is_eq => {
-                self.pop();
-                Token::NotEqual
-            }
+            '=' if try_pop_next!(self, next_is_eq) => Token::Equal,
+            '!' if try_pop_next!(self, next_is_eq) => Token::NotEqual,
 
             // Assignment Operator
-            ':' if next_is_eq => {
-                self.pop();
-                Token::AssignmentOperator
-            }
+            ':' if try_pop_next!(self, next_is_eq) => Token::AssignmentOperator,
 
             // Colon
             ':' => Token::Colon,
@@ -197,26 +187,20 @@ impl Iterator for Scanner<'_> {
                 let mut num: String = c.to_string();
 
                 // Match against beginning part of the number
-                while matches!(self.peek(), Some('0'..='9')) {
+                while matches!(self.input.peek(), Some('0'..='9')) {
                     num.push(self.pop().unwrap())
                 }
 
                 // Catch Floats
-                if self.peek() == Some(&'.') {
+                if self.input.peek() == Some(&'.') {
                     num.push(self.pop().unwrap());
                     // Match against the rest of the number
-                    while matches!(self.peek(), Some('0'..='9')) {
+                    while matches!(self.input.peek(), Some('0'..='9')) {
                         num.push(self.pop().unwrap())
                     }
-                    self.numeric_constants
-                        .entry(num.clone())
-                        .or_insert(Token::Float(num.parse().unwrap()))
-                        .clone()
+                    Token::Float(num.parse().unwrap())
                 } else {
-                    self.numeric_constants
-                        .entry(num.clone())
-                        .or_insert(Token::Integer(num.parse().unwrap()))
-                        .clone()
+                    Token::Integer(num.parse().unwrap())
                 }
             }
 
@@ -224,7 +208,7 @@ impl Iterator for Scanner<'_> {
             '"' => {
                 let mut s = String::new();
 
-                while !matches!(self.peek(), Some('"') | None) {
+                while !matches!(self.input.peek(), Some('"') | None) {
                     s.push(self.pop().unwrap())
                 }
 
@@ -243,7 +227,7 @@ impl Iterator for Scanner<'_> {
                 let mut identifier = c.to_string();
 
                 while matches!(
-                    self.peek(),
+                    self.input.peek(),
                     Some('_') | Some('a'..='z') | Some('A'..='Z') | Some('0'..='9')
                 ) {
                     identifier.push(self.pop().unwrap());
@@ -278,32 +262,25 @@ mod tests {
     use rstest::*;
 
     #[rstest]
-    // Declaration Prefixes
     #[case("program", Token::KwProgram)]
     #[case("procedure", Token::KwProcedure)]
     #[case("variable", Token::KwVariable)]
-    // Scope Modifiers
     #[case("global", Token::KwGlobal)]
-    // Block Markers
     #[case("begin", Token::KwBegin)]
     #[case("end", Token::KwEnd)]
-    // Type Names
     #[case("integer", Token::KwInteger)]
     #[case("float", Token::KwFloat)]
     #[case("string", Token::KwString)]
     #[case("bool", Token::KwBool)]
     #[case("true", Token::KwTrue)]
     #[case("false", Token::KwFalse)]
-    // Control Flow
     #[case("if", Token::KwIf)]
     #[case("then", Token::KwThen)]
     #[case("else", Token::KwElse)]
     #[case("for", Token::KwFor)]
     #[case("return", Token::KwReturn)]
-    // Miscellaneous Keywords
     #[case("is", Token::KwIs)]
     #[case("not", Token::KwNot)]
-    // Structure Symbols
     #[case("(", Token::LeftParenthesis)]
     #[case(")", Token::RightParenthesis)]
     #[case("[", Token::LeftBracket)]
@@ -312,21 +289,18 @@ mod tests {
     #[case(":", Token::Colon)]
     #[case(";", Token::SemiColon)]
     #[case(".", Token::Period)]
-    // Math Symbols
     #[case("&", Token::BitAnd)]
     #[case("|", Token::BitOr)]
     #[case("+", Token::Plus)]
     #[case("-", Token::Minus)]
     #[case("*", Token::Multiply)]
     #[case("/", Token::Divide)]
-    // Comparison Operators
     #[case("<", Token::LessThan)]
     #[case("<=", Token::LessThanEqual)]
     #[case(">", Token::GreaterThan)]
     #[case(">=", Token::GreaterThanEqual)]
     #[case("==", Token::Equal)]
     #[case("!=", Token::NotEqual)]
-    // Variables
     #[case("hello", Token::Identifier("hello".to_string()))]
     #[case("\"hello\"", Token::String("hello".to_string()))]
     #[case("8675309", Token::Integer(8675309))]
@@ -352,6 +326,7 @@ mod tests {
 
     #[rstest]
     #[case("\n  >", Token::GreaterThan, 2, 3)]
+    #[case("\t>", Token::GreaterThan, 1, 2)]
     #[case("// Single Line Comment\n>", Token::GreaterThan, 2, 1)]
     #[case("/* Multi\nLine\nComment\n*/\n>", Token::GreaterThan, 5, 1)]
     #[case("/* Multi\r\nLine\r\nComment\r\n*/\r\n>", Token::GreaterThan, 5, 1)]
