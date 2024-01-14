@@ -125,7 +125,7 @@ mod tests {
                 my_var2 [] := ;
 
                 // If statements
-                if () then end if;
+                If () then end if;
                 if () then
                 else end if;
 

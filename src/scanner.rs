@@ -234,6 +234,8 @@ impl Iterator for Scanner<'_> {
                     identifier.push(self.pop().unwrap());
                 }
 
+                identifier = identifier.to_lowercase();
+
                 self.identifiers
                     .entry(identifier.clone())
                     .or_insert(Token::Identifier(identifier))
@@ -276,6 +278,8 @@ mod tests {
     #[case("true", Token::KwTrue)]
     #[case("false", Token::KwFalse)]
     #[case("if", Token::KwIf)]
+    #[case("If", Token::KwIf)]
+    #[case("iF", Token::KwIf)]
     #[case("then", Token::KwThen)]
     #[case("else", Token::KwElse)]
     #[case("for", Token::KwFor)]
@@ -303,6 +307,7 @@ mod tests {
     #[case("==", Token::Equal)]
     #[case("!=", Token::NotEqual)]
     #[case("hello", Token::Identifier("hello".to_string()))]
+    #[case("hElLO", Token::Identifier("hello".to_string()))]
     #[case("\"hello\"", Token::String("hello".to_string()))]
     #[case("8675309", Token::Integer(8675309))]
     #[case("1.23", Token::Float(1.23))]
