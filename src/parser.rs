@@ -3,15 +3,17 @@ use crate::token::Token;
 use self::{
     general::{global, identifier},
     procedure::{procedure_declaration, ProcedureDeclarationNode},
-    util::{many0, opt, ParseInput, ParseResult},
+    statement::{statement, StatementNode},
+    util::{many0, not_partial, opt, parse_error, peek, token, ParseInput, ParseResult},
     variable::{variable_declaration, VariableDeclarationNode},
 };
 
+mod expression;
 mod general;
 mod procedure;
-mod variable;
-#[macro_use]
+mod statement;
 mod util;
+mod variable;
 
 #[derive(Debug)]
 pub enum DeclarationType {
@@ -27,10 +29,7 @@ fn declaration(input: ParseInput<'_>) -> ParseResult<DeclarationNode> {
     let (input, is_global) = opt(global)(input)?;
     let is_global = is_global.is_some();
 
-    let next_item = input
-        .clone()
-        .next()
-        .expect("Unable to continue parsing after EOF.");
+    let (input, next_item) = peek(input)?;
 
     let (input, declaration) = match next_item.token {
         Token::KwProcedure => {
@@ -70,13 +69,22 @@ fn program_header(input: ParseInput<'_>) -> ParseResult<ProgramHeaderNode> {
 #[derive(Debug)]
 pub struct ProgramBodyNode {
     pub declarations: Vec<DeclarationNode>,
+    pub statements: Vec<StatementNode>,
 }
 fn program_body(input: ParseInput<'_>) -> ParseResult<ProgramBodyNode> {
     let (input, declarations) = many0(declaration)(input)?;
     let (input, _) = token!(input, Token::KwBegin)?;
+    let (input, statements) = many0(statement)(input)?;
     let (input, _) = token!(input, Token::KwEnd)?;
     let (input, _) = token!(input, Token::KwProgram)?;
-    Ok((input, ProgramBodyNode { declarations }))
+
+    Ok((
+        input,
+        ProgramBodyNode {
+            declarations,
+            statements,
+        },
+    ))
 }
 
 #[derive(Debug)]
@@ -112,7 +120,20 @@ mod tests {
             begin end procedure;
 
             begin
+                // Assignment Statements
+                my_var := ;
+                my_var2 [] := ;
 
+                // If statements
+                if () then end if;
+                if () then
+                else end if;
+
+                // Loop Statements
+                for (my_var := ; ) end for;
+
+                // Return Statements
+                return ;
             end program.
             ";
 

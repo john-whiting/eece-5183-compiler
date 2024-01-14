@@ -3,14 +3,33 @@ use crate::{
     token::Token,
 };
 
-use super::util::{ParseInput, ParseResult};
+use super::{
+    expression::{expression, ExpressionNode},
+    util::{ParseInput, ParseResult},
+};
 
 pub fn comma(input: ParseInput<'_>) -> ParseResult<Token> {
     not_partial!(token!(input, Token::Comma))
 }
 
+pub fn semi_colon(input: ParseInput<'_>) -> ParseResult<Token> {
+    token!(input, Token::SemiColon)
+}
+
 pub fn global(input: ParseInput<'_>) -> ParseResult<Token> {
     not_partial!(token!(input, Token::KwGlobal))
+}
+
+pub fn left_parenthesis(input: ParseInput<'_>) -> ParseResult<Token> {
+    token!(input, Token::LeftParenthesis)
+}
+
+pub fn right_parenthesis(input: ParseInput<'_>) -> ParseResult<Token> {
+    token!(input, Token::RightParenthesis)
+}
+
+pub fn else_kw(input: ParseInput<'_>) -> ParseResult<Token> {
+    not_partial!(token!(input, Token::KwElse))
 }
 
 pub fn identifier(input: ParseInput<'_>) -> ParseResult<String> {
@@ -41,6 +60,14 @@ pub fn bound(input: ParseInput<'_>) -> ParseResult<NumberNode> {
     let (input, _) = token!(input, Token::RightBracket)?;
 
     Ok((input, number))
+}
+
+pub fn index(input: ParseInput<'_>) -> ParseResult<ExpressionNode> {
+    let (input, _) = not_partial!(token!(input, Token::LeftBracket))?;
+    let (input, expr) = expression(input)?;
+    let (input, _) = token!(input, Token::RightBracket)?;
+
+    Ok((input, expr))
 }
 
 #[derive(Debug)]

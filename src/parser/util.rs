@@ -124,6 +124,15 @@ macro_rules! accumulate_match {
 
 pub(crate) use accumulate_match;
 
+pub fn peek(input: ParseInput<'_>) -> ParseResult<ScannerItem> {
+    let next_item = input
+        .clone()
+        .next()
+        .expect("Unable to continue parsing after EOF.");
+
+    Ok((input, next_item))
+}
+
 pub fn many0<'a, T>(
     f: GenericParsable!('a, T),
 ) -> impl Fn(ParseInput<'a>) -> ParseResult<'a, Vec<T>> {
@@ -174,5 +183,33 @@ pub fn separated_list0<'a, S, T>(
         acc.append(&mut acc2);
 
         Ok((input, acc))
+    }
+}
+
+pub fn delimited<'a, L, T, R>(
+    left: GenericParsable!('a, L),
+    capture: GenericParsable!('a, T),
+    right: GenericParsable!('a, R),
+) -> impl Fn(ParseInput<'a>) -> ParseResult<'a, T> {
+    move |input| {
+        let (input, _) = left(input)?;
+        let (input, o) = capture(input)?;
+        let (input, _) = right(input)?;
+
+        Ok((input, o))
+    }
+}
+
+pub fn separated_pair<'a, T, S, K>(
+    capture1: GenericParsable!('a, T),
+    separator: GenericParsable!('a, S),
+    capture2: GenericParsable!('a, K),
+) -> impl Fn(ParseInput<'a>) -> ParseResult<'a, (T, K)> {
+    move |input| {
+        let (input, o1) = capture1(input)?;
+        let (input, _) = separator(input)?;
+        let (input, o2) = capture2(input)?;
+
+        Ok((input, (o1, o2)))
     }
 }

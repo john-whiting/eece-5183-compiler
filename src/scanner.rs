@@ -20,7 +20,7 @@ pub struct ScannerItem {
     pub column_count: usize,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Scanner<'a> {
     // TODO: Optimize for memory (Allow for &str and &Token)
     identifiers: HashMap<String, Token>,
