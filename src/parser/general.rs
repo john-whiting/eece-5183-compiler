@@ -12,6 +12,10 @@ pub fn comma(input: ParseInput<'_>) -> ParseResult<Token> {
     not_partial!(token!(input, Token::Comma))
 }
 
+pub fn colon(input: ParseInput<'_>) -> ParseResult<Token> {
+    token!(input, Token::Colon)
+}
+
 pub fn semi_colon(input: ParseInput<'_>) -> ParseResult<Token> {
     token!(input, Token::SemiColon)
 }
