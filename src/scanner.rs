@@ -13,13 +13,14 @@ macro_rules! try_pop_next {
     };
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ScannerItem {
     pub token: Token,
     pub line_count: usize,
     pub column_count: usize,
 }
 
+#[derive(Clone)]
 pub struct Scanner<'a> {
     // TODO: Optimize for memory (Allow for &str and &Token)
     identifiers: HashMap<String, Token>,
