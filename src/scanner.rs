@@ -82,7 +82,7 @@ impl<'a> Scanner<'a> {
         let mut c = self.pop()?;
 
         let mut is_comment = false;
-        let mut is_multiline_comment = false;
+        let mut multiline_comment_count = 0;
 
         while match c {
             // Always ignore newline whitespace and reset is_comment
@@ -99,26 +99,26 @@ impl<'a> Scanner<'a> {
                 true
             }
             // Start comment
-            '/' if self.input.peek() == Some(&'/') && !is_multiline_comment => {
+            '/' if self.input.peek() == Some(&'/') && multiline_comment_count == 0 => {
                 is_comment = true;
                 true
             }
             // Start multiline comment
             '/' if self.input.peek() == Some(&'*') => {
-                is_multiline_comment = true;
+                multiline_comment_count += 1;
                 true
             }
             // End multiline comment
             '*' if try_pop_next!(
                 self,
-                is_multiline_comment && self.input.peek() == Some(&'/')
+                multiline_comment_count > 0 && self.input.peek() == Some(&'/')
             ) =>
             {
-                is_multiline_comment = false;
+                multiline_comment_count -= 1;
                 true
             }
             // Ignore anything if we are inside a comment or if it is whitespace
-            _ if is_comment || is_multiline_comment || c.is_whitespace() => true,
+            _ if is_comment || multiline_comment_count > 0 || c.is_whitespace() => true,
             // Nothing else to ignore
             _ => false,
         } {
@@ -337,6 +337,7 @@ mod tests {
     #[case("/* Multi\nLine\nComment\n*/\n>", Token::GreaterThan, 5, 1)]
     #[case("/* Multi\r\nLine\r\nComment\r\n*/\r\n>", Token::GreaterThan, 5, 1)]
     #[case("/* BC with // double slashes */>", Token::GreaterThan, 1, 32)]
+    #[case("/* /* BC inside of BC */ */>", Token::GreaterThan, 1, 28)]
     fn ignorables(
         #[case] input: String,
         #[case] token: Token,
