@@ -17,7 +17,6 @@ use super::{
  *             | [not] arithmetic
  *
  * -------------------
- * TODO: Account for multiple [not]
  * Non-Left-Recursive Grammar:
  * expression       := [not] arithmetic expression_prime
  * expression_prime := & arithmetic expression_prime
