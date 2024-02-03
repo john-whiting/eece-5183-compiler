@@ -8,6 +8,10 @@ use super::{
     util::{ParseInput, ParseResult},
 };
 
+pub fn not(input: ParseInput<'_>) -> ParseResult<Token> {
+    not_partial!(token!(input, Token::KwNot))
+}
+
 pub fn comma(input: ParseInput<'_>) -> ParseResult<Token> {
     not_partial!(token!(input, Token::Comma))
 }

@@ -2,6 +2,7 @@ use crate::token::Token;
 
 use super::{
     declaration,
+    expression::{expression, ExpressionNode},
     general::{colon, comma, identifier, left_parenthesis, right_parenthesis, type_mark, TypeMark},
     statement::{statement, StatementNode},
     util::{
@@ -69,4 +70,26 @@ pub fn procedure_declaration(input: ParseInput<'_>) -> ParseResult<ProcedureDecl
     let (input, body) = procedure_body(input)?;
 
     Ok((input, ProcedureDeclarationNode { header, body }))
+}
+
+#[derive(Debug)]
+pub struct ProcedureCallNode {
+    pub identifier: String,
+    pub arguments: Vec<ExpressionNode>,
+}
+pub fn procedure_call(input: ParseInput<'_>) -> ParseResult<ProcedureCallNode> {
+    let (input, ident) = identifier(input)?;
+    let (input, arguments) = delimited(
+        left_parenthesis,
+        separated_list0(comma, expression),
+        right_parenthesis,
+    )(input)?;
+
+    Ok((
+        input,
+        ProcedureCallNode {
+            identifier: ident,
+            arguments,
+        },
+    ))
 }

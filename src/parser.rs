@@ -106,7 +106,7 @@ mod tests {
 
     #[test]
     fn basic_program() {
-        let input = r"
+        let input = r#"
             program HelloWorld is
            
             global variable my_var : integer;
@@ -121,21 +121,23 @@ mod tests {
 
             begin
                 // Assignment Statements
-                my_var := ;
-                my_var2 [] := ;
+                my_var := my_var2 + 5 * 10.4;
+                my_var2 [my_var] := 5 < 10;
 
                 // If statements
-                If () then end if;
-                if () then
+                If (not my_var2) then end if;
+                if (my_var + 4 - 2 > -2) then
                 else end if;
 
                 // Loop Statements
-                for (my_var := ; ) end for;
+                for (my_var := 0; my_var < 10)
+                    my_var := my_var + 1;
+                end for;
 
                 // Return Statements
-                return ;
+                return test(5, "hello", true);
             end program.
-            ";
+            "#;
 
         let scanner = Scanner::new(input);
 
