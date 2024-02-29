@@ -57,7 +57,7 @@ pub fn number(input: ParseInput<'_>) -> ParseResult<NumberNode> {
         match token {
             Token::Integer(x) => NumberNode::IntegerLiteral(x),
             Token::Float(x) => NumberNode::FloatLiteral(x),
-            _ => panic!("Invalid number matched, this should not be possible."),
+            _ => unreachable!("Invalid number matched, this should not be possible."),
         },
     ))
 }
@@ -98,7 +98,7 @@ pub fn type_mark(input: ParseInput<'_>) -> ParseResult<TypeMark> {
             Token::KwFloat => TypeMark::Float,
             Token::KwString => TypeMark::String,
             Token::KwBool => TypeMark::Bool,
-            _ => panic!("Invalid type mark matched, this should not be possible."),
+            _ => unreachable!("Invalid type mark matched, this should not be possible."),
         },
     ))
 }
