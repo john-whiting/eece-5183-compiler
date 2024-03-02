@@ -8,12 +8,13 @@ use self::{
     variable::{variable_declaration, VariableDeclarationNode},
 };
 
-mod expression;
-mod general;
-mod procedure;
-mod statement;
+pub mod expression;
+pub mod general;
+pub mod procedure;
+pub mod statement;
+pub mod variable;
+
 mod util;
-mod variable;
 
 #[derive(Debug)]
 pub enum DeclarationType {
@@ -25,6 +26,7 @@ pub enum DeclarationNode {
     Global(DeclarationType),
     Local(DeclarationType),
 }
+
 fn declaration(input: ParseInput<'_>) -> ParseResult<DeclarationNode> {
     let (input, is_global) = opt(global)(input)?;
     let is_global = is_global.is_some();
@@ -78,6 +80,16 @@ fn program_body(input: ParseInput<'_>) -> ParseResult<ProgramBodyNode> {
     let (input, _) = token!(input, Token::KwEnd)?;
     let (input, _) = token!(input, Token::KwProgram)?;
 
+    // NOTE: LANGUAGE SEMANTICS | RULE #3
+    // ALL DECLARATIONS IN THE PROGRAM SCOPE ARE GLOBAL
+    let declarations = declarations
+        .into_iter()
+        .map(|declaration| match declaration {
+            DeclarationNode::Local(x) => DeclarationNode::Global(x),
+            _ => declaration,
+        })
+        .collect();
+
     Ok((
         input,
         ProgramBodyNode {
@@ -88,7 +100,8 @@ fn program_body(input: ParseInput<'_>) -> ParseResult<ProgramBodyNode> {
 }
 
 #[derive(Debug)]
-pub struct ProgramNode(ProgramHeaderNode, ProgramBodyNode);
+pub struct ProgramNode(pub ProgramHeaderNode, pub ProgramBodyNode);
+
 pub fn program(input: ParseInput<'_>) -> ParseResult<ProgramNode> {
     let (input, header) = program_header(input)?;
     let (input, body) = program_body(input)?;

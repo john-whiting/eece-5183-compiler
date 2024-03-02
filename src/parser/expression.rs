@@ -134,7 +134,7 @@ fn arithmetic_prime(input: ParseInput<'_>) -> ParseResult<ArithmeticNode> {
  * Original Grammar:
  * relation := relation < term
  *           | relation <= term
- *           | rekation > term
+ *           | relation > term
  *           | relation >= term
  *           | relation == term
  *           | relation != term
