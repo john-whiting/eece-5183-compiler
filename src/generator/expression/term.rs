@@ -87,3 +87,158 @@ impl<'a> CodeGenerator<'a> for TermNode {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use inkwell::context::Context;
+
+    use crate::parser::{
+        expression::{FactorNode, TermNode},
+        general::NumberNode,
+    };
+
+    use super::*;
+
+    #[test]
+    fn term_node_generation() {
+        let outside_context = Context::create();
+        let context = CodeGeneratorContext::new(&outside_context);
+        let function_type = context.context.void_type().fn_type(&[], false);
+        let function_value = context.module.add_function("main", function_type, None);
+        let function_entry_block = context.context.append_basic_block(function_value, "entry");
+        context.builder.position_at_end(function_entry_block);
+
+        let tests = vec![
+            (
+                TermNode::Start(
+                    FactorNode::Number(NumberNode::IntegerLiteral(5)),
+                    Box::new(TermNode::Multiply(
+                        FactorNode::Number(NumberNode::IntegerLiteral(4)),
+                        Box::new(TermNode::Nop),
+                    )),
+                ),
+                context
+                    .context
+                    .i64_type()
+                    .const_int(20, true)
+                    .as_basic_value_enum(),
+            ),
+            (
+                TermNode::Start(
+                    FactorNode::Number(NumberNode::IntegerLiteral(4)),
+                    Box::new(TermNode::Multiply(
+                        FactorNode::Number(NumberNode::FloatLiteral(5.5)),
+                        Box::new(TermNode::Nop),
+                    )),
+                ),
+                context
+                    .context
+                    .f64_type()
+                    .const_float(22.0)
+                    .as_basic_value_enum(),
+            ),
+            (
+                TermNode::Start(
+                    FactorNode::Number(NumberNode::FloatLiteral(5.5)),
+                    Box::new(TermNode::Multiply(
+                        FactorNode::Number(NumberNode::FloatLiteral(5.5)),
+                        Box::new(TermNode::Nop),
+                    )),
+                ),
+                context
+                    .context
+                    .f64_type()
+                    .const_float(30.25)
+                    .as_basic_value_enum(),
+            ),
+            (
+                TermNode::Start(
+                    FactorNode::Number(NumberNode::FloatLiteral(5.5)),
+                    Box::new(TermNode::Multiply(
+                        FactorNode::Number(NumberNode::FloatLiteral(5.5)),
+                        Box::new(TermNode::Multiply(
+                            FactorNode::Number(NumberNode::FloatLiteral(5.5)),
+                            Box::new(TermNode::Nop),
+                        )),
+                    )),
+                ),
+                context
+                    .context
+                    .f64_type()
+                    .const_float(166.375)
+                    .as_basic_value_enum(),
+            ),
+            (
+                TermNode::Start(
+                    FactorNode::Number(NumberNode::IntegerLiteral(5)),
+                    Box::new(TermNode::Divide(
+                        FactorNode::Number(NumberNode::IntegerLiteral(4)),
+                        Box::new(TermNode::Nop),
+                    )),
+                ),
+                context
+                    .context
+                    .i64_type()
+                    .const_int(1, true)
+                    .as_basic_value_enum(),
+            ),
+            (
+                TermNode::Start(
+                    FactorNode::Number(NumberNode::IntegerLiteral(4)),
+                    Box::new(TermNode::Divide(
+                        FactorNode::Number(NumberNode::FloatLiteral(5.0)),
+                        Box::new(TermNode::Nop),
+                    )),
+                ),
+                context
+                    .context
+                    .f64_type()
+                    .const_float(0.8)
+                    .as_basic_value_enum(),
+            ),
+            (
+                TermNode::Start(
+                    FactorNode::Number(NumberNode::FloatLiteral(5.5)),
+                    Box::new(TermNode::Divide(
+                        FactorNode::Number(NumberNode::FloatLiteral(5.5)),
+                        Box::new(TermNode::Nop),
+                    )),
+                ),
+                context
+                    .context
+                    .f64_type()
+                    .const_float(1.0)
+                    .as_basic_value_enum(),
+            ),
+        ];
+
+        let failed_tests: Vec<_> = tests
+            .into_iter()
+            .filter_map(|(factor_node, expected_result)| {
+                let formatted_factor_node = format!("{factor_node:?}");
+
+                let result = factor_node.generate_code(&context);
+
+                match result {
+                    Ok(result) => {
+                        if result != expected_result {
+                            Some(format!(
+                                "\t{formatted_factor_node}: {result} != {expected_result}"
+                            ))
+                        } else {
+                            None
+                        }
+                    }
+                    Err(e) => Some(format!(
+                        "\t{formatted_factor_node} encountered an error on code generation!\n{e}"
+                    )),
+                }
+            })
+            .collect();
+
+        if !failed_tests.is_empty() {
+            let formatted = failed_tests.join("\n");
+            panic!("FactorNode Code Generation test(s) failed:\n{formatted}");
+        }
+    }
+}
