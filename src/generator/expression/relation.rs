@@ -76,3 +76,119 @@ impl<'a> CodeGenerator<'a> for RelationNode {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use inkwell::context::Context;
+
+    use crate::parser::{
+        expression::{FactorNode, TermNode},
+        general::NumberNode,
+    };
+
+    use super::*;
+
+    macro_rules! comparison_tests {
+        ($context: ident, $comparison: expr, $low_high: expr, $equal: expr, $high_low: expr) => {
+            vec![
+                (
+                    RelationNode::Start(
+                        TermNode::Start(
+                            FactorNode::Number(NumberNode::IntegerLiteral(3)),
+                            Box::new(TermNode::Nop),
+                        ),
+                        Box::new($comparison(
+                            TermNode::Start(
+                                FactorNode::Number(NumberNode::IntegerLiteral(4)),
+                                Box::new(TermNode::Nop),
+                            ),
+                            Box::new(RelationNode::Nop),
+                        )),
+                    ),
+                    $context.context.bool_type().const_int($low_high, false),
+                ),
+                (
+                    RelationNode::Start(
+                        TermNode::Start(
+                            FactorNode::Number(NumberNode::IntegerLiteral(4)),
+                            Box::new(TermNode::Nop),
+                        ),
+                        Box::new($comparison(
+                            TermNode::Start(
+                                FactorNode::Number(NumberNode::IntegerLiteral(4)),
+                                Box::new(TermNode::Nop),
+                            ),
+                            Box::new(RelationNode::Nop),
+                        )),
+                    ),
+                    $context.context.bool_type().const_int($equal, false),
+                ),
+                (
+                    RelationNode::Start(
+                        TermNode::Start(
+                            FactorNode::Number(NumberNode::IntegerLiteral(5)),
+                            Box::new(TermNode::Nop),
+                        ),
+                        Box::new($comparison(
+                            TermNode::Start(
+                                FactorNode::Number(NumberNode::IntegerLiteral(4)),
+                                Box::new(TermNode::Nop),
+                            ),
+                            Box::new(RelationNode::Nop),
+                        )),
+                    ),
+                    $context.context.bool_type().const_int($high_low, false),
+                ),
+            ]
+        };
+    }
+
+    #[test]
+    fn relation_node_generation() {
+        let outside_context = Context::create();
+        let context = CodeGeneratorContext::new(&outside_context);
+        let function_type = context.context.void_type().fn_type(&[], false);
+        let function_value = context.module.add_function("main", function_type, None);
+        let function_entry_block = context.context.append_basic_block(function_value, "entry");
+        context.builder.position_at_end(function_entry_block);
+
+        let tests = vec![
+            comparison_tests!(context, RelationNode::LessThan, 1, 0, 0),
+            comparison_tests!(context, RelationNode::LessThanEqual, 1, 1, 0),
+            comparison_tests!(context, RelationNode::GreaterThan, 0, 0, 1),
+            comparison_tests!(context, RelationNode::GreaterThanEqual, 0, 1, 1),
+            comparison_tests!(context, RelationNode::Equal, 0, 1, 0),
+            comparison_tests!(context, RelationNode::NotEqual, 1, 0, 1),
+        ];
+
+        let failed_tests: Vec<_> = tests
+            .into_iter()
+            .flatten()
+            .filter_map(|(relation_node, expected_result)| {
+                let formatted_relation_node = format!("{relation_node:?}");
+
+                let result = relation_node.generate_code(&context);
+
+                match result {
+                    Ok(result) => {
+                        if result != expected_result {
+                            Some(format!(
+                                "\t{formatted_relation_node}: {result} != {expected_result}"
+                            ))
+                        } else {
+                            None
+                        }
+                    }
+                    Err(e) => Some(format!(
+                        "\t{formatted_relation_node} encountered an error on code generation!\n{e}"
+                    )),
+                }
+            })
+            .collect();
+
+        if !failed_tests.is_empty() {
+            let formatted = failed_tests.join("\n");
+            panic!("FactorNode Code Generation test(s) failed:\n{formatted}");
+        }
+    }
+}

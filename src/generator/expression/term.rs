@@ -214,23 +214,23 @@ mod tests {
 
         let failed_tests: Vec<_> = tests
             .into_iter()
-            .filter_map(|(factor_node, expected_result)| {
-                let formatted_factor_node = format!("{factor_node:?}");
+            .filter_map(|(term_node, expected_result)| {
+                let formatted_term_node = format!("{term_node:?}");
 
-                let result = factor_node.generate_code(&context);
+                let result = term_node.generate_code(&context);
 
                 match result {
                     Ok(result) => {
                         if result != expected_result {
                             Some(format!(
-                                "\t{formatted_factor_node}: {result} != {expected_result}"
+                                "\t{formatted_term_node}: {result} != {expected_result}"
                             ))
                         } else {
                             None
                         }
                     }
                     Err(e) => Some(format!(
-                        "\t{formatted_factor_node} encountered an error on code generation!\n{e}"
+                        "\t{formatted_term_node} encountered an error on code generation!\n{e}"
                     )),
                 }
             })
