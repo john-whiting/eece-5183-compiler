@@ -8,9 +8,13 @@ use crate::{
 impl<'a> CodeGenerator<'a> for FactorNode {
     type Item = BasicValueEnum<'a>;
 
-    fn generate_code(self, context: &'a CodeGeneratorContext) -> anyhow::Result<Self::Item> {
+    fn generate_code(
+        self,
+        context: &'a CodeGeneratorContext,
+        _previous: Option<Self::Item>,
+    ) -> anyhow::Result<Self::Item> {
         Ok(match self {
-            FactorNode::Expression(x) => x.generate_code(context)?,
+            FactorNode::Expression(x) => x.generate_code(context, None)?,
             FactorNode::Number(x) => match x {
                 NumberNode::IntegerLiteral(n) => context
                     .context
@@ -147,7 +151,7 @@ mod tests {
             .filter_map(|(factor_node, expected_result)| {
                 let formatted_factor_node = format!("{factor_node:?}");
 
-                let result = factor_node.generate_code(&context);
+                let result = factor_node.generate_code(&context, None);
 
                 if let Ok(result) = result {
                     if result != expected_result {

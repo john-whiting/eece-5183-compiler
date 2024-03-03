@@ -15,12 +15,8 @@ use crate::{
 #[derive(Error, Debug)]
 pub enum RelationNodeCodeGenerationError {
     /// Indicates an issue with the compiler itself.
-    #[error("COMPILER CODE GENERATION ERROR: RelationNode::Nop has no expansion, generate_code should not have been called for this term. There may be a bug in the parser or the code generator.")]
-    MetaNopExpansion,
-
-    /// Indicates an issue with the compiler itself.
-    #[error("COMPILER CODE GENERATION ERROR: Multiple RelationNode::Start nodes found in a chain. There is likely a bug in the parser.")]
-    MetaDoubleStart,
+    #[error("COMPILER CODE GENERATION ERROR: Invalid previous result. There is likely a bug in the code generator or parser.")]
+    MetaInvalidPrevious,
 
     #[error("Comparison of types {0} and {1} is not supported.")]
     ComparisonUnsupportedTypes(String, String),
@@ -29,51 +25,57 @@ pub enum RelationNodeCodeGenerationError {
 impl<'a> CodeGenerator<'a> for RelationNode {
     type Item = BasicValueEnum<'a>;
 
-    fn generate_code(self, context: &'a CodeGeneratorContext) -> anyhow::Result<Self::Item> {
-        let (left, right) = match self {
-            RelationNode::Start(left, right)
-            | RelationNode::LessThan(left, right)
-            | RelationNode::LessThanEqual(left, right)
-            | RelationNode::GreaterThan(left, right)
-            | RelationNode::GreaterThanEqual(left, right)
-            | RelationNode::Equal(left, right)
-            | RelationNode::NotEqual(left, right) => Ok((left, right)),
-            RelationNode::Nop => Err(RelationNodeCodeGenerationError::MetaNopExpansion),
-        }?;
-
-        let (int_predicate, float_predicate) = match right.as_ref() {
-            RelationNode::Start(_, _) => {
-                return Err(RelationNodeCodeGenerationError::MetaDoubleStart.into())
+    fn generate_code(
+        self,
+        context: &'a CodeGeneratorContext,
+        previous: Option<Self::Item>,
+    ) -> anyhow::Result<Self::Item> {
+        let (int_predicate, float_predicate, current, next, prev) = match (self, previous) {
+            (RelationNode::Start(cur, next), None) => {
+                return next.generate_code(context, Some(cur.generate_code(context, None)?));
             }
-            RelationNode::LessThan(_, _) => (IntPredicate::SLT, FloatPredicate::OLT),
-            RelationNode::LessThanEqual(_, _) => (IntPredicate::SLE, FloatPredicate::OLE),
-            RelationNode::GreaterThan(_, _) => (IntPredicate::SGT, FloatPredicate::OGT),
-            RelationNode::GreaterThanEqual(_, _) => (IntPredicate::SGE, FloatPredicate::OGE),
-            RelationNode::Equal(_, _) => (IntPredicate::EQ, FloatPredicate::OEQ),
-            RelationNode::NotEqual(_, _) => (IntPredicate::NE, FloatPredicate::ONE),
-            RelationNode::Nop => return left.generate_code(context),
+            (RelationNode::LessThan(cur, next), Some(prev)) => {
+                (IntPredicate::SLT, FloatPredicate::OLT, cur, next, prev)
+            }
+            (RelationNode::LessThanEqual(cur, next), Some(prev)) => {
+                (IntPredicate::SLE, FloatPredicate::OLE, cur, next, prev)
+            }
+            (RelationNode::GreaterThan(cur, next), Some(prev)) => {
+                (IntPredicate::SGT, FloatPredicate::OGT, cur, next, prev)
+            }
+            (RelationNode::GreaterThanEqual(cur, next), Some(prev)) => {
+                (IntPredicate::SGE, FloatPredicate::OGE, cur, next, prev)
+            }
+            (RelationNode::Equal(cur, next), Some(prev)) => {
+                (IntPredicate::EQ, FloatPredicate::OEQ, cur, next, prev)
+            }
+            (RelationNode::NotEqual(cur, next), Some(prev)) => {
+                (IntPredicate::NE, FloatPredicate::ONE, cur, next, prev)
+            }
+            (RelationNode::Nop, Some(previous)) => return Ok(previous),
+            (_, _) => return Err(RelationNodeCodeGenerationError::MetaInvalidPrevious.into()),
         };
 
-        let left = left.generate_code(context)?;
-        let right = right.generate_code(context)?;
-
-        match basic_value_type_casted(context, left, right)? {
-            BasicValueTypeCasted::Integer(lhs, rhs) => Ok(context
+        let current = current.generate_code(context, None)?;
+        let result = match basic_value_type_casted(context, prev, current)? {
+            BasicValueTypeCasted::Integer(lhs, rhs) => context
                 .builder
                 .build_int_compare(int_predicate, lhs, rhs, "cmptmp")?
-                .as_basic_value_enum()),
-            BasicValueTypeCasted::Float(lhs, rhs) => Ok(context
+                .as_basic_value_enum(),
+            BasicValueTypeCasted::Float(lhs, rhs) => context
                 .builder
                 .build_float_compare(float_predicate, lhs, rhs, "cmptmp")?
-                .as_basic_value_enum()),
+                .as_basic_value_enum(),
             BasicValueTypeCasted::Unsupported(lhs, rhs) => {
-                Err(RelationNodeCodeGenerationError::ComparisonUnsupportedTypes(
+                return Err(RelationNodeCodeGenerationError::ComparisonUnsupportedTypes(
                     lhs.error_hint(),
                     rhs.error_hint(),
                 )
                 .into())
             }
-        }
+        };
+
+        next.generate_code(context, Some(result))
     }
 }
 
@@ -167,7 +169,7 @@ mod tests {
             .filter_map(|(relation_node, expected_result)| {
                 let formatted_relation_node = format!("{relation_node:?}");
 
-                let result = relation_node.generate_code(&context);
+                let result = relation_node.generate_code(&context, None);
 
                 match result {
                     Ok(result) => {

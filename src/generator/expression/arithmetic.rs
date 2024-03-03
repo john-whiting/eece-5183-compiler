@@ -12,12 +12,8 @@ use crate::{
 #[derive(Error, Debug)]
 pub enum ArithmeticNodeCodeGenerationError {
     /// Indicates an issue with the compiler itself.
-    #[error("COMPILER CODE GENERATION ERROR: ArithmeticNode::Nop has no expansion, generate_code should not have been called for this term. There may be a bug in the parser or the code generator.")]
-    MetaNopExpansion,
-
-    /// Indicates an issue with the compiler itself.
-    #[error("COMPILER CODE GENERATION ERROR: Multiple ArithmeticNode::Start nodes found in a chain. There is likely a bug in the parser.")]
-    MetaDoubleStart,
+    #[error("COMPILER CODE GENERATION ERROR: Invalid previous result. There is likely a bug in the code generator or parser.")]
+    MetaInvalidPrevious,
 
     #[error("Unable to add {0} with {1}.")]
     AdditionUnsupportedTypes(String, String),
@@ -29,64 +25,66 @@ pub enum ArithmeticNodeCodeGenerationError {
 impl<'a> CodeGenerator<'a> for ArithmeticNode {
     type Item = BasicValueEnum<'a>;
 
-    fn generate_code(self, context: &'a CodeGeneratorContext) -> anyhow::Result<Self::Item> {
-        let (left, right) = match self {
-            ArithmeticNode::Start(left, right)
-            | ArithmeticNode::Add(left, right)
-            | ArithmeticNode::Sub(left, right) => Ok((left, right)),
-            ArithmeticNode::Nop => Err(ArithmeticNodeCodeGenerationError::MetaNopExpansion),
-        }?;
-
-        let left = left.generate_code(context)?;
-
-        match right.as_ref() {
-            ArithmeticNode::Start(_, _) => {
-                Err(ArithmeticNodeCodeGenerationError::MetaDoubleStart.into())
+    fn generate_code(
+        self,
+        context: &'a CodeGeneratorContext,
+        previous: Option<Self::Item>,
+    ) -> anyhow::Result<Self::Item> {
+        let (result, next) = match (self, previous) {
+            (ArithmeticNode::Start(current, next), None) => {
+                (current.generate_code(context, None)?, next)
             }
-            ArithmeticNode::Add(_, _) => {
-                let right = right.generate_code(context)?;
-
-                match basic_value_type_casted(context, left, right)? {
-                    BasicValueTypeCasted::Integer(lhs, rhs) => Ok(context
+            (ArithmeticNode::Add(current, next), Some(previous)) => {
+                let current = current.generate_code(context, None)?;
+                let result = match basic_value_type_casted(context, previous, current)? {
+                    BasicValueTypeCasted::Integer(lhs, rhs) => context
                         .builder
                         .build_int_add(lhs, rhs, "addtmp")?
-                        .as_basic_value_enum()),
-                    BasicValueTypeCasted::Float(lhs, rhs) => Ok(context
+                        .as_basic_value_enum(),
+                    BasicValueTypeCasted::Float(lhs, rhs) => context
                         .builder
                         .build_float_add(lhs, rhs, "addtmp")?
-                        .as_basic_value_enum()),
+                        .as_basic_value_enum(),
                     BasicValueTypeCasted::Unsupported(lhs, rhs) => {
-                        Err(ArithmeticNodeCodeGenerationError::AdditionUnsupportedTypes(
+                        return Err(ArithmeticNodeCodeGenerationError::AdditionUnsupportedTypes(
                             lhs.error_hint(),
                             rhs.error_hint(),
                         )
                         .into())
                     }
-                }
-            }
-            ArithmeticNode::Sub(_, _) => {
-                let right = right.generate_code(context)?;
+                };
 
-                match basic_value_type_casted(context, left, right)? {
-                    BasicValueTypeCasted::Integer(lhs, rhs) => Ok(context
+                (result, next)
+            }
+            (ArithmeticNode::Sub(current, next), Some(previous)) => {
+                let current = current.generate_code(context, None)?;
+                let result = match basic_value_type_casted(context, previous, current)? {
+                    BasicValueTypeCasted::Integer(lhs, rhs) => context
                         .builder
                         .build_int_sub(lhs, rhs, "subtmp")?
-                        .as_basic_value_enum()),
-                    BasicValueTypeCasted::Float(lhs, rhs) => Ok(context
+                        .as_basic_value_enum(),
+                    BasicValueTypeCasted::Float(lhs, rhs) => context
                         .builder
                         .build_float_sub(lhs, rhs, "subtmp")?
-                        .as_basic_value_enum()),
-                    BasicValueTypeCasted::Unsupported(lhs, rhs) => Err(
-                        ArithmeticNodeCodeGenerationError::SubtractionUnsupportedTypes(
-                            lhs.error_hint(),
-                            rhs.error_hint(),
+                        .as_basic_value_enum(),
+                    BasicValueTypeCasted::Unsupported(lhs, rhs) => {
+                        return Err(
+                            ArithmeticNodeCodeGenerationError::SubtractionUnsupportedTypes(
+                                lhs.error_hint(),
+                                rhs.error_hint(),
+                            )
+                            .into(),
                         )
-                        .into(),
-                    ),
-                }
+                    }
+                };
+
+                (result, next)
             }
-            ArithmeticNode::Nop => Ok(left),
-        }
+            (ArithmeticNode::Nop, Some(previous)) => return Ok(previous),
+            (_, _) => return Err(ArithmeticNodeCodeGenerationError::MetaInvalidPrevious.into()),
+        };
+
+        next.generate_code(context, Some(result))
     }
 }
 
@@ -326,7 +324,7 @@ mod tests {
             .filter_map(|(arithmetic_node, expected_result)| {
                 let formatted_arithmetic_node = format!("{arithmetic_node:?}");
 
-                let result = arithmetic_node.generate_code(&context);
+                let result = arithmetic_node.generate_code(&context, None);
 
                 match result {
                     Ok(result) => {

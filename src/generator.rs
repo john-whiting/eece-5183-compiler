@@ -25,5 +25,9 @@ impl<'a> CodeGeneratorContext<'a> {
 pub trait CodeGenerator<'a> {
     type Item;
 
-    fn generate_code(self, context: &'a CodeGeneratorContext) -> anyhow::Result<Self::Item>;
+    fn generate_code(
+        self,
+        context: &'a CodeGeneratorContext,
+        previous: Option<Self::Item>,
+    ) -> anyhow::Result<Self::Item>;
 }

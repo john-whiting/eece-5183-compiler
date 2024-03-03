@@ -16,12 +16,8 @@ mod term;
 #[derive(Error, Debug)]
 pub enum ExpressionNodeCodeGenerationError {
     /// Indicates an issue with the compiler itself.
-    #[error("COMPILER CODE GENERATION ERROR: TermNode::Nop has no expansion, generate_code should not have been called for this term. There may be a bug in the parser or the code generator.")]
-    MetaNopExpansion,
-
-    /// Indicates an issue with the compiler itself.
-    #[error("COMPILER CODE GENERATION ERROR: Multiple TermNode::Start nodes found in a chain. There is likely a bug in the parser.")]
-    MetaDoubleStart,
+    #[error("COMPILER CODE GENERATION ERROR: Invalid previous result. There is likely a bug in the code generator or parser.")]
+    MetaInvalidPrevious,
 
     #[error("Unable to perform NOT on {0}.")]
     BitwiseNotUnsupportedType(String),
@@ -36,79 +32,79 @@ pub enum ExpressionNodeCodeGenerationError {
 impl<'a> CodeGenerator<'a> for ExpressionNode {
     type Item = BasicValueEnum<'a>;
 
-    fn generate_code(self, context: &'a CodeGeneratorContext) -> anyhow::Result<Self::Item> {
-        let (left, right) = match self {
-            ExpressionNode::Start(left, right) => {
-                let left = match left {
-                    ExpressionData::Not(node) => {
-                        let node = node.generate_code(context)?;
-
-                        match node {
-                            BasicValueEnum::IntValue(int_value) => Ok(context
-                                .builder
-                                .build_not(int_value, "tmpnot")?
-                                .as_basic_value_enum()),
-                            x => Err(
+    fn generate_code(
+        self,
+        context: &'a CodeGeneratorContext,
+        previous: Option<Self::Item>,
+    ) -> anyhow::Result<Self::Item> {
+        let (result, next) = match (self, previous) {
+            (ExpressionNode::Start(current, next), None) => match current {
+                ExpressionData::Not(current) => {
+                    let current = current.generate_code(context, None)?;
+                    let result = match current {
+                        BasicValueEnum::IntValue(int_value) => context
+                            .builder
+                            .build_not(int_value, "tmpnot")?
+                            .as_basic_value_enum(),
+                        x => {
+                            return Err(
                                 ExpressionNodeCodeGenerationError::BitwiseNotUnsupportedType(
                                     x.error_hint(),
-                                ),
-                            ),
+                                )
+                                .into(),
+                            )
                         }
-                    }
-                    ExpressionData::Nop(node) => Ok(node.generate_code(context)?),
-                }?;
-                Ok((left, right))
-            }
-            ExpressionNode::And(left, right) | ExpressionNode::Or(left, right) => {
-                Ok((left.generate_code(context)?, right))
-            }
-            ExpressionNode::Nop => Err(ExpressionNodeCodeGenerationError::MetaNopExpansion),
-        }?;
+                    };
 
-        match right.as_ref() {
-            ExpressionNode::Start(_, _) => {
-                Err(ExpressionNodeCodeGenerationError::MetaDoubleStart.into())
-            }
-            ExpressionNode::And(_, _) => {
-                let right = right.generate_code(context)?;
-
-                match basic_value_type_casted(context, left, right)? {
-                    BasicValueTypeCasted::Integer(lhs, rhs) => Ok(context
+                    (result, next)
+                }
+                ExpressionData::Nop(current) => (current.generate_code(context, None)?, next),
+            },
+            (ExpressionNode::And(current, next), Some(previous)) => {
+                let current = current.generate_code(context, None)?;
+                let result = match basic_value_type_casted(context, previous, current)? {
+                    BasicValueTypeCasted::Integer(lhs, rhs) => context
                         .builder
                         .build_and(lhs, rhs, "andtmp")?
-                        .as_basic_value_enum()),
+                        .as_basic_value_enum(),
                     BasicValueTypeCasted::Float(_, _) | BasicValueTypeCasted::Unsupported(_, _) => {
-                        Err(
+                        return Err(
                             ExpressionNodeCodeGenerationError::BitwiseAndUnsupportedTypes(
-                                left.error_hint(),
-                                right.error_hint(),
+                                previous.error_hint(),
+                                current.error_hint(),
                             )
                             .into(),
                         )
                     }
-                }
-            }
-            ExpressionNode::Or(_, _) => {
-                let right = right.generate_code(context)?;
+                };
 
-                match basic_value_type_casted(context, left, right)? {
-                    BasicValueTypeCasted::Integer(lhs, rhs) => Ok(context
+                (result, next)
+            }
+            (ExpressionNode::Or(current, next), Some(previous)) => {
+                let current = current.generate_code(context, None)?;
+                let result = match basic_value_type_casted(context, previous, current)? {
+                    BasicValueTypeCasted::Integer(lhs, rhs) => context
                         .builder
                         .build_or(lhs, rhs, "ortmp")?
-                        .as_basic_value_enum()),
+                        .as_basic_value_enum(),
                     BasicValueTypeCasted::Float(_, _) | BasicValueTypeCasted::Unsupported(_, _) => {
-                        Err(
+                        return Err(
                             ExpressionNodeCodeGenerationError::BitwiseOrUnsupportedTypes(
-                                left.error_hint(),
-                                right.error_hint(),
+                                previous.error_hint(),
+                                current.error_hint(),
                             )
                             .into(),
                         )
                     }
-                }
+                };
+
+                (result, next)
             }
-            ExpressionNode::Nop => Ok(left),
-        }
+            (ExpressionNode::Nop, Some(previous)) => return Ok(previous),
+            (_, _) => return Err(ExpressionNodeCodeGenerationError::MetaInvalidPrevious.into()),
+        };
+
+        next.generate_code(context, Some(result))
     }
 }
 
@@ -277,7 +273,7 @@ mod tests {
             .filter_map(|(expression_node, expected_result)| {
                 let formatted_expression_node = format!("{expression_node:?}");
 
-                let result = expression_node.generate_code(&context);
+                let result = expression_node.generate_code(&context, None);
 
                 match result {
                     Ok(result) => {
