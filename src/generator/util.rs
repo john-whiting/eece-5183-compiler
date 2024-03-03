@@ -1,6 +1,6 @@
 use inkwell::{
     types::{ArrayType, BasicTypeEnum, FloatType, IntType},
-    values::{BasicValue, BasicValueEnum, FloatValue, IntValue},
+    values::{BasicValueEnum, FloatValue, IntValue},
 };
 
 use super::CodeGeneratorContext;
