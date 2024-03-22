@@ -284,6 +284,10 @@ pub fn factor(input: ParseInput<'_>) -> ParseResult<FactorNode> {
             (input, FactorNode::Expression(Box::new(expr)))
         }
         Token::Identifier(_) => {
+            let (input, item) = peek(input)?;
+            if item.token == Token::LeftBracket {
+                todo!("FactorNode parsing for arrays is not yet implemented.");
+            }
             let procedure_call_result = procedure_call(input.clone());
             if let Ok((input, node)) = procedure_call_result {
                 (input, FactorNode::ProcedureCall(node))

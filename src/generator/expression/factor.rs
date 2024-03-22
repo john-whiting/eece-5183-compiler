@@ -1,9 +1,19 @@
 use inkwell::values::{BasicValue, BasicValueEnum};
+use thiserror::Error;
 
 use crate::{
     generator::{CodeGenerator, CodeGeneratorContext},
     parser::{expression::FactorNode, general::NumberNode},
 };
+
+#[derive(Error, Debug)]
+pub enum FactorNodeCodeGenerationError {
+    #[error("Undeclared variable {0}")]
+    UndeclaredVariable(String),
+
+    #[error("Only integers and floats can be negated!")]
+    UnsupportedNegation,
+}
 
 impl<'a> CodeGenerator<'a> for FactorNode {
     type Item = BasicValueEnum<'a>;
@@ -27,6 +37,49 @@ impl<'a> CodeGenerator<'a> for FactorNode {
                     .const_float(n)
                     .as_basic_value_enum(),
             },
+            FactorNode::Name(identifier) => {
+                let reference = context.get_variable(&identifier);
+                match reference {
+                    Some(def) => {
+                        context
+                            .builder
+                            .build_load(def.ctx_type, def.ptr_value, &identifier)?
+                    }
+                    None => {
+                        return Err(
+                            FactorNodeCodeGenerationError::UndeclaredVariable(identifier).into(),
+                        )
+                    }
+                }
+            }
+            FactorNode::NameNegated(identifier) => {
+                let reference = context.get_variable(&identifier);
+                let variable = match reference {
+                    Some(def) => {
+                        context
+                            .builder
+                            .build_load(def.ctx_type, def.ptr_value, &identifier)?
+                    }
+                    None => {
+                        return Err(
+                            FactorNodeCodeGenerationError::UndeclaredVariable(identifier).into(),
+                        )
+                    }
+                };
+
+                match variable {
+                    BasicValueEnum::IntValue(value) => context
+                        .builder
+                        .build_int_neg(value, "tmp_int_negation")?
+                        .as_basic_value_enum(),
+                    BasicValueEnum::FloatValue(value) => context
+                        .builder
+                        .build_float_neg(value, "tmp_float_negation")?
+                        .as_basic_value_enum(),
+                    _ => return Err(FactorNodeCodeGenerationError::UnsupportedNegation.into()),
+                }
+            }
+            FactorNode::ProcedureCall(_) => todo!("Procedure calls are not yet supported!"),
 
             // NOTE: LANGUAGE SEMANTICS | RULE #12
             // Strings are NULL TERMINATED
@@ -48,7 +101,6 @@ impl<'a> CodeGenerator<'a> for FactorNode {
                 .bool_type()
                 .const_int(0, false)
                 .as_basic_value_enum(),
-            x => todo!("Code generation is not yet implemented for {x:?}."),
         })
     }
 }
