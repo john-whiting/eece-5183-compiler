@@ -1,9 +1,19 @@
 use inkwell::{
+    builder::BuilderError,
     types::{ArrayType, BasicTypeEnum, FloatType, IntType},
     values::{BasicValueEnum, FloatValue, IntValue},
 };
 
 use super::CodeGeneratorContext;
+
+fn cast_int_to_float<'a>(
+    context: &'a CodeGeneratorContext,
+    value: IntValue<'a>,
+) -> Result<FloatValue<'a>, BuilderError> {
+    context
+        .builder
+        .build_signed_int_to_float(value, context.context.f64_type(), "int_to_float")
+}
 
 pub enum BasicValueTypeCasted<'a> {
     Integer(IntValue<'a>, IntValue<'a>),
@@ -22,10 +32,10 @@ pub fn basic_value_type_casted<'a>(
             Ok(BasicValueTypeCasted::Integer(lhs, rhs))
         }
         (BasicValueEnum::IntValue(lhs), BasicValueEnum::FloatValue(rhs)) => Ok(
-            BasicValueTypeCasted::Float(lhs.const_signed_to_float(context.context.f64_type()), rhs),
+            BasicValueTypeCasted::Float(cast_int_to_float(context, lhs)?, rhs),
         ),
         (BasicValueEnum::FloatValue(lhs), BasicValueEnum::IntValue(rhs)) => Ok(
-            BasicValueTypeCasted::Float(lhs, rhs.const_signed_to_float(context.context.f64_type())),
+            BasicValueTypeCasted::Float(lhs, cast_int_to_float(context, rhs)?),
         ),
         (BasicValueEnum::FloatValue(lhs), BasicValueEnum::FloatValue(rhs)) => {
             Ok(BasicValueTypeCasted::Float(lhs, rhs))
