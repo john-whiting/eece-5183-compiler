@@ -5,16 +5,31 @@ use inkwell::{
     context::Context,
     module::{Linkage, Module},
     types::{BasicTypeEnum, FunctionType},
-    values::{FunctionValue, PointerValue},
+    values::{BasicValueEnum, FunctionValue, IntValue, PointerValue},
 };
+use thiserror::Error;
 
-use self::{cstd::CStd, mstd::Std};
+use crate::parser::expression::ExpressionNode;
+
+use self::{cstd::CStd, mstd::Std, util::CodeGenerationErrorHint};
 
 mod cstd;
 mod expression;
 mod mstd;
 mod util;
 mod variable;
+
+#[derive(Error, Debug)]
+pub enum VariableDefinitionImplErr {
+    #[error("Unable to index {0}.")]
+    NonArrayIndexing(String),
+
+    #[error("Variable is missing constant size.")]
+    ArrayMissingSize,
+
+    #[error("Unable to index an array with {0}.")]
+    NonIntegerIndex(String),
+}
 
 #[derive(Clone)]
 pub struct VariableDefinitionData<'a> {
@@ -27,6 +42,92 @@ pub struct VariableDefinitionData<'a> {
 pub enum VariableDefinition<'a> {
     Indexable(VariableDefinitionData<'a>, u32),
     NotIndexable(VariableDefinitionData<'a>),
+}
+
+impl<'a> VariableDefinition<'a> {
+    pub fn index_of(
+        &self,
+        context: &'a CodeGeneratorContext,
+        index_of: ExpressionNode,
+    ) -> anyhow::Result<(PointerValue<'a>, BasicTypeEnum<'a>)> {
+        let (reference, size) = match self {
+            VariableDefinition::Indexable(data, size) => Ok((data, Some(size))),
+            // Only arrays can be indexed
+            VariableDefinition::NotIndexable(data) => Err(
+                VariableDefinitionImplErr::NonArrayIndexing(data.ctx_type.error_hint()),
+            ),
+        }?;
+
+        // if indexing a variable, that variable must be sized
+        let size = size.ok_or(VariableDefinitionImplErr::ArrayMissingSize)?;
+
+        // ctx_type is the inside type
+        let ctx_type = reference.ctx_type.into_array_type().get_element_type();
+
+        let expr = index_of.generate_code(context, None)?;
+
+        // LANGUAGE SEMANTICS | RULE #13
+        // Arrays must be indexed by integers ONLY
+        let expr = match expr {
+            BasicValueEnum::IntValue(value) => value,
+            unsupported_value => {
+                return Err(VariableDefinitionImplErr::NonIntegerIndex(
+                    unsupported_value.error_hint(),
+                )
+                .into())
+            }
+        };
+
+        // LANGUAGE SEMANTICS | RULE #13
+        // The lower bound of an array index is 0, and the upper bound is size - 1
+
+        let fails_lower_bound_value = context.builder.build_int_compare(
+            inkwell::IntPredicate::SLT,
+            expr,
+            context.context.i64_type().const_zero(),
+            "array_lower_bounds_check",
+        )?;
+        let fails_upper_bound_value = context.builder.build_int_compare(
+            inkwell::IntPredicate::SGE,
+            expr,
+            context.context.i64_type().const_int(*size as u64, true),
+            "array_upper_bounds_check",
+        )?;
+
+        let fails_bound_value = context.builder.build_or(
+            fails_lower_bound_value,
+            fails_upper_bound_value,
+            "fails_bound_check",
+        )?;
+
+        let current_fn_value = context.fn_value();
+        let then_bb = context.context.append_basic_block(current_fn_value, "then");
+        let cont_bb = context
+            .context
+            .append_basic_block(current_fn_value, "ifcont");
+
+        context
+            .builder
+            .build_conditional_branch(fails_bound_value, then_bb, cont_bb)
+            .unwrap();
+
+        // build the then block
+        context.builder.position_at_end(then_bb);
+        // TODO: Add out of bounds message
+        context.cstd.exit(1)?;
+
+        // place builder at the continue block
+        context.builder.position_at_end(cont_bb);
+
+        Ok((
+            unsafe {
+                context
+                    .builder
+                    .build_gep(ctx_type, reference.ptr_value, &[expr], "array_index")?
+            },
+            ctx_type,
+        ))
+    }
 }
 
 #[derive(Clone, Debug)]
