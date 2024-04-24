@@ -17,10 +17,16 @@ mod util;
 mod variable;
 
 #[derive(Clone)]
-pub struct VariableDefinition<'a> {
+pub struct VariableDefinitionData<'a> {
     pub identifier: String,
     pub ctx_type: BasicTypeEnum<'a>,
     pub ptr_value: PointerValue<'a>,
+}
+
+#[derive(Clone)]
+pub enum VariableDefinition<'a> {
+    Indexable(VariableDefinitionData<'a>, u32),
+    NotIndexable(VariableDefinitionData<'a>),
 }
 
 #[derive(Clone, Debug)]
@@ -47,6 +53,8 @@ pub struct CodeGeneratorContext<'a> {
 
     pub cstd: Rc<CStd<'a>>,
     pub std: Rc<Std<'a>>,
+
+    pub fn_value_opt: Option<FunctionValue<'a>>,
 
     // NOTE: LANGUAGE SEMANTICS | RULE #3
     // All "local" variables are for one procedure only.
@@ -79,6 +87,7 @@ impl<'a> CodeGeneratorContext<'a> {
             builder,
             cstd,
             std: _std,
+            fn_value_opt: None,
             global_variables: Rc::new(RefCell::new(HashMap::new())),
             local_variables: HashMap::new(),
             global_functions: Rc::new(RefCell::new(HashMap::new())),
@@ -98,6 +107,7 @@ impl<'a> CodeGeneratorContext<'a> {
             builder: Rc::clone(&self.builder),
             cstd: Rc::clone(&self.cstd),
             std: Rc::clone(&self.std),
+            fn_value_opt: self.fn_value_opt,
             global_variables: Rc::clone(&self.global_variables),
             local_variables: HashMap::new(),
             global_functions: Rc::clone(&self.global_functions),
@@ -175,6 +185,11 @@ impl<'a> CodeGeneratorContext<'a> {
             self.local_functions
                 .insert(definition.identifier.clone(), Rc::new(definition));
         }
+    }
+
+    pub fn fn_value(&self) -> FunctionValue<'a> {
+        // NOTE: This is unsafe... we should handle it better in the future
+        self.fn_value_opt.unwrap()
     }
 }
 

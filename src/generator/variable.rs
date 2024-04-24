@@ -6,7 +6,7 @@ use crate::parser::{
     variable::VariableDeclarationNode,
 };
 
-use super::{CodeGenerator, VariableDefinition};
+use super::{CodeGenerator, VariableDefinition, VariableDefinitionData};
 
 pub const MAX_SUPPORTED_ARRAY_SIZE: i64 = u32::MAX as i64;
 
@@ -56,18 +56,26 @@ impl<'a> CodeGenerator<'a> for VariableDeclarationNode {
                 .as_basic_type_enum(),
         };
 
-        let ctx_type = match size {
-            1 => ctx_type,
-            2..=MAX_SUPPORTED_ARRAY_SIZE => ctx_type.array_type(size as u32).as_basic_type_enum(),
+        let (ctx_type, size) = match size {
+            1 => (ctx_type, None),
+            2..=MAX_SUPPORTED_ARRAY_SIZE => {
+                let size = size as u32;
+                (ctx_type.array_type(size).as_basic_type_enum(), Some(size))
+            }
             _ => return Err(VariableDeclarationNodeCodeGenerationError::UnsupportedBound.into()),
         };
 
         let ptr_value = context.builder.build_alloca(ctx_type, &data.identifier)?;
 
-        Ok(VariableDefinition {
+        let data = VariableDefinitionData {
             identifier: data.identifier,
             ctx_type,
             ptr_value,
+        };
+
+        Ok(match size {
+            None => VariableDefinition::NotIndexable(data),
+            Some(size) => VariableDefinition::Indexable(data, size),
         })
     }
 }

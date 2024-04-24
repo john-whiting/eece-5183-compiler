@@ -144,7 +144,7 @@ mod tests {
 
                 // Loop Statements
                 for (my_var := 0; my_var < 10)
-                    my_var := my_var + 1;
+                    my_var := my_var + 1 + my_var2[10];
                 end for;
 
                 // Return Statements

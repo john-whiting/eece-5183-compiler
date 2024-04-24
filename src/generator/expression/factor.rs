@@ -2,7 +2,9 @@ use inkwell::values::{BasicValue, BasicValueEnum};
 use thiserror::Error;
 
 use crate::{
-    generator::{CodeGenerator, CodeGeneratorContext},
+    generator::{
+        util::CodeGenerationErrorHint, CodeGenerator, CodeGeneratorContext, VariableDefinition,
+    },
     parser::{expression::FactorNode, general::NumberNode},
 };
 
@@ -11,8 +13,20 @@ pub enum FactorNodeCodeGenerationError {
     #[error("Undeclared variable {0}")]
     UndeclaredVariable(String),
 
-    #[error("Only integers and floats can be negated!")]
-    UnsupportedNegation,
+    #[error("Unable to negate {0} since only integer and float values can be negated.")]
+    UnsupportedNegation(String),
+
+    #[error("Unable to index {0}.")]
+    NonArrayIndexing(String),
+
+    #[error("Index out of bounds for {0} (size {1}).")]
+    IndexOutOfBounds(String, u32),
+
+    #[error("Variable {0} is missing constant size.")]
+    ArrayMissingSize(String),
+
+    #[error("Unable to index an array with {0}.")]
+    NonIntegerIndex(String),
 }
 
 impl<'a> CodeGenerator<'a> for FactorNode {
@@ -37,47 +51,131 @@ impl<'a> CodeGenerator<'a> for FactorNode {
                     .const_float(n)
                     .as_basic_value_enum(),
             },
-            FactorNode::Name(identifier) => {
+            FactorNode::Name {
+                identifier,
+                negated,
+                index_of,
+            } => {
                 let reference = context.get_variable(&identifier);
-                match reference {
-                    Some(def) => {
-                        context
-                            .builder
-                            .build_load(def.ctx_type, def.ptr_value, &identifier)?
-                    }
-                    None => {
-                        return Err(
-                            FactorNodeCodeGenerationError::UndeclaredVariable(identifier).into(),
-                        )
-                    }
-                }
-            }
-            FactorNode::NameNegated(identifier) => {
-                let reference = context.get_variable(&identifier);
-                let variable = match reference {
-                    Some(def) => {
-                        context
-                            .builder
-                            .build_load(def.ctx_type, def.ptr_value, &identifier)?
-                    }
-                    None => {
-                        return Err(
-                            FactorNodeCodeGenerationError::UndeclaredVariable(identifier).into(),
-                        )
-                    }
+                let reference = reference.ok_or(
+                    FactorNodeCodeGenerationError::UndeclaredVariable(identifier.clone()),
+                )?;
+
+                let (reference, size) = match reference.as_ref() {
+                    VariableDefinition::NotIndexable(data) => (data, None),
+                    VariableDefinition::Indexable(data, size) => (data, Some(size)),
                 };
 
-                match variable {
-                    BasicValueEnum::IntValue(value) => context
+                let mut ctx_type = reference.ctx_type;
+
+                // Index the variable (if applicable)
+                let ptr_value = if let Some(index_of) = index_of {
+                    // Only arrays can be indexed
+                    if !ctx_type.is_array_type() {
+                        return Err(FactorNodeCodeGenerationError::NonArrayIndexing(
+                            ctx_type.error_hint(),
+                        )
+                        .into());
+                    }
+
+                    // if indexing a variable, that variable must be sized
+                    let size =
+                        size.ok_or(FactorNodeCodeGenerationError::ArrayMissingSize(identifier))?;
+
+                    let array_type = ctx_type.into_array_type();
+
+                    // ctx_type is now the inside type
+                    ctx_type = array_type.get_element_type();
+
+                    let expr = index_of.generate_code(context, None)?;
+
+                    // LANGUAGE SEMANTICS | RULE #13
+                    // Arrays must be indexed by integers ONLY
+                    let expr = match expr {
+                        BasicValueEnum::IntValue(value) => value,
+                        unsupported_value => {
+                            return Err(FactorNodeCodeGenerationError::NonIntegerIndex(
+                                unsupported_value.error_hint(),
+                            )
+                            .into())
+                        }
+                    };
+
+                    // LANGUAGE SEMANTICS | RULE #13
+                    // The lower bound of an array index is 0, and the upper bound is size - 1
+
+                    let fails_lower_bound_value = context.builder.build_int_compare(
+                        inkwell::IntPredicate::SLT,
+                        expr,
+                        context.context.i64_type().const_zero(),
+                        "array_lower_bounds_check",
+                    )?;
+                    let fails_upper_bound_value = context.builder.build_int_compare(
+                        inkwell::IntPredicate::SGE,
+                        expr,
+                        context.context.i64_type().const_int(*size as u64, true),
+                        "array_upper_bounds_check",
+                    )?;
+
+                    let fails_bound_value = context.builder.build_or(
+                        fails_lower_bound_value,
+                        fails_upper_bound_value,
+                        "fails_bound_check",
+                    )?;
+
+                    let current_fn_value = context.fn_value();
+                    let then_bb = context.context.append_basic_block(current_fn_value, "then");
+                    let cont_bb = context
+                        .context
+                        .append_basic_block(current_fn_value, "ifcont");
+
+                    context
                         .builder
-                        .build_int_neg(value, "tmp_int_negation")?
-                        .as_basic_value_enum(),
-                    BasicValueEnum::FloatValue(value) => context
-                        .builder
-                        .build_float_neg(value, "tmp_float_negation")?
-                        .as_basic_value_enum(),
-                    _ => return Err(FactorNodeCodeGenerationError::UnsupportedNegation.into()),
-                }
+                        .build_conditional_branch(fails_bound_value, then_bb, cont_bb)
+                        .unwrap();
+
+                    // build the then block
+                    context.builder.position_at_end(then_bb);
+                    // TODO: Add out of bounds message
+                    context.cstd.exit(1)?;
+
+                    // place builder at the continue block
+                    context.builder.position_at_end(cont_bb);
+
+                    unsafe {
+                        context.builder.build_gep(
+                            ctx_type,
+                            reference.ptr_value,
+                            &[expr],
+                            "array_index",
+                        )?
+                    }
+                } else {
+                    reference.ptr_value
+                };
+
+                let mut value = context.builder.build_load(ctx_type, ptr_value, "load")?;
+
+                if negated {
+                    value = match value {
+                        BasicValueEnum::IntValue(value) => context
+                            .builder
+                            .build_int_neg(value, "tmp_int_negation")?
+                            .as_basic_value_enum(),
+                        BasicValueEnum::FloatValue(value) => context
+                            .builder
+                            .build_float_neg(value, "tmp_float_negation")?
+                            .as_basic_value_enum(),
+                        unsupported_value => {
+                            return Err(FactorNodeCodeGenerationError::UnsupportedNegation(
+                                unsupported_value.error_hint(),
+                            )
+                            .into())
+                        }
+                    };
+                };
+
+                value.as_basic_value_enum()
             }
             FactorNode::ProcedureCall(_) => todo!("Procedure calls are not yet supported!"),
 

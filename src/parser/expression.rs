@@ -4,7 +4,7 @@ use crate::{
 };
 
 use super::{
-    general::{identifier, left_parenthesis, not, number, right_parenthesis, NumberNode},
+    general::{identifier, index, left_parenthesis, not, number, right_parenthesis, NumberNode},
     procedure::ProcedureCallNode,
     util::{delimited, opt, parse_error, peek, ParseInput, ParseResult},
 };
@@ -268,8 +268,11 @@ fn term_prime(input: ParseInput<'_>) -> ParseResult<TermNode> {
 pub enum FactorNode {
     Expression(Box<ExpressionNode>),
     ProcedureCall(ProcedureCallNode),
-    Name(String),
-    NameNegated(String),
+    Name {
+        identifier: String,
+        negated: bool,
+        index_of: Option<Box<ExpressionNode>>,
+    },
     Number(NumberNode),
     String(String),
     True,
@@ -284,16 +287,24 @@ pub fn factor(input: ParseInput<'_>) -> ParseResult<FactorNode> {
             (input, FactorNode::Expression(Box::new(expr)))
         }
         Token::Identifier(_) => {
-            let (input, item) = peek(input)?;
-            if item.token == Token::LeftBracket {
-                todo!("FactorNode parsing for arrays is not yet implemented.");
-            }
             let procedure_call_result = procedure_call(input.clone());
             if let Ok((input, node)) = procedure_call_result {
                 (input, FactorNode::ProcedureCall(node))
             } else {
                 let (input, ident) = identifier(input)?;
-                (input, FactorNode::Name(ident))
+                let (input, index_of) = opt(index)(input)?;
+                let index_of = match index_of {
+                    Some(expr) => Some(Box::new(expr)),
+                    None => None,
+                };
+                (
+                    input,
+                    FactorNode::Name {
+                        identifier: ident,
+                        negated: false,
+                        index_of,
+                    },
+                )
             }
         }
         Token::Minus => {
@@ -310,7 +321,19 @@ pub fn factor(input: ParseInput<'_>) -> ParseResult<FactorNode> {
                 )
             } else {
                 let (input, ident) = identifier(input)?;
-                (input, FactorNode::NameNegated(ident))
+                let (input, index_of) = opt(index)(input)?;
+                let index_of = match index_of {
+                    Some(expr) => Some(Box::new(expr)),
+                    None => None,
+                };
+                (
+                    input,
+                    FactorNode::Name {
+                        identifier: ident,
+                        negated: true,
+                        index_of,
+                    },
+                )
             }
         }
         Token::Integer(_) | Token::Float(_) => {
