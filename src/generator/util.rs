@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use inkwell::{
     builder::BuilderError,
     types::{ArrayType, BasicType, BasicTypeEnum, FloatType, IntType},
@@ -10,7 +12,7 @@ use crate::parser::general::TypeMark;
 use super::CodeGeneratorContext;
 
 fn cast_int_to_float<'a>(
-    context: &'a CodeGeneratorContext,
+    context: Rc<CodeGeneratorContext<'a>>,
     value: IntValue<'a>,
 ) -> Result<FloatValue<'a>, BuilderError> {
     context
@@ -26,7 +28,7 @@ pub enum BasicValueTypeCasted<'a> {
 // NOTE: LANGUAGE SEMANTICS | RULE #7
 // Support (limited) type-casting
 pub fn basic_value_type_casted<'a>(
-    context: &'a CodeGeneratorContext,
+    context: Rc<CodeGeneratorContext<'a>>,
     left: BasicValueEnum<'a>,
     right: BasicValueEnum<'a>,
 ) -> anyhow::Result<BasicValueTypeCasted<'a>> {
@@ -106,22 +108,6 @@ impl<'a> CodeGenerationErrorHint for BasicValueEnum<'a> {
             BasicValueEnum::VectorValue(_) => "vector".to_string(),
             BasicValueEnum::PointerValue(_) => "pointer".to_string(),
         }
-    }
-}
-
-pub fn type_mark_to_llvm_type<'a>(
-    context: &'a CodeGeneratorContext,
-    type_mark: &'_ TypeMark,
-) -> BasicTypeEnum<'a> {
-    match type_mark {
-        TypeMark::Bool => context.context.bool_type().as_basic_type_enum(),
-        TypeMark::Float => context.context.f64_type().as_basic_type_enum(),
-        TypeMark::Integer => context.context.i64_type().as_basic_type_enum(),
-        TypeMark::String => context
-            .context
-            .i8_type()
-            .ptr_type(AddressSpace::default())
-            .as_basic_type_enum(),
     }
 }
 

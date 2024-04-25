@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use inkwell::values::{BasicValue, BasicValueEnum};
 use thiserror::Error;
 
@@ -27,15 +29,18 @@ impl<'a> CodeGenerator<'a> for TermNode {
 
     fn generate_code(
         &self,
-        context: &'a CodeGeneratorContext,
+        context: Rc<CodeGeneratorContext<'a>>,
         previous: Option<Self::Item>,
     ) -> anyhow::Result<Self::Item> {
         let (result, next) = match (self, previous) {
             (TermNode::Nop, Some(previous)) => return Ok(previous),
-            (TermNode::Start(current, next), None) => (current.generate_code(context, None)?, next),
+            (TermNode::Start(current, next), None) => {
+                (current.generate_code(Rc::clone(&context), None)?, next)
+            }
             (TermNode::Multiply(current, next), Some(previous)) => {
-                let current = current.generate_code(context, None)?;
-                let result = match basic_value_type_casted(context, previous, current)? {
+                let current = current.generate_code(Rc::clone(&context), None)?;
+                let result = match basic_value_type_casted(Rc::clone(&context), previous, current)?
+                {
                     BasicValueTypeCasted::Integer(lhs, rhs) => context
                         .builder
                         .build_int_mul(lhs, rhs, "multmp")?
@@ -56,8 +61,9 @@ impl<'a> CodeGenerator<'a> for TermNode {
                 (result, next)
             }
             (TermNode::Divide(current, next), Some(previous)) => {
-                let current = current.generate_code(context, None)?;
-                let result = match basic_value_type_casted(context, previous, current)? {
+                let current = current.generate_code(Rc::clone(&context), None)?;
+                let result = match basic_value_type_casted(Rc::clone(&context), previous, current)?
+                {
                     BasicValueTypeCasted::Integer(lhs, rhs) => context
                         .builder
                         .build_int_signed_div(lhs, rhs, "divtmp")?
@@ -99,10 +105,13 @@ mod tests {
     fn term_node_generation() {
         let outside_context = Context::create();
         let context = CodeGeneratorContext::new(&outside_context);
-        let function_type = context.context.void_type().fn_type(&[], false);
-        let function_value = context.module.add_function("main", function_type, None);
-        let function_entry_block = context.context.append_basic_block(function_value, "entry");
-        context.builder.position_at_end(function_entry_block);
+        let context_ref = Rc::new(context);
+        let function_type = context_ref.context.void_type().fn_type(&[], false);
+        let function_value = context_ref.module.add_function("main", function_type, None);
+        let function_entry_block = context_ref
+            .context
+            .append_basic_block(function_value, "entry");
+        context_ref.builder.position_at_end(function_entry_block);
 
         let tests = vec![
             (
@@ -113,7 +122,7 @@ mod tests {
                         Box::new(TermNode::Nop),
                     )),
                 ),
-                context
+                context_ref
                     .context
                     .i64_type()
                     .const_int(20, true)
@@ -127,7 +136,7 @@ mod tests {
                         Box::new(TermNode::Nop),
                     )),
                 ),
-                context
+                context_ref
                     .context
                     .f64_type()
                     .const_float(22.0)
@@ -141,7 +150,7 @@ mod tests {
                         Box::new(TermNode::Nop),
                     )),
                 ),
-                context
+                context_ref
                     .context
                     .f64_type()
                     .const_float(30.25)
@@ -158,7 +167,7 @@ mod tests {
                         )),
                     )),
                 ),
-                context
+                context_ref
                     .context
                     .f64_type()
                     .const_float(166.375)
@@ -172,7 +181,7 @@ mod tests {
                         Box::new(TermNode::Nop),
                     )),
                 ),
-                context
+                context_ref
                     .context
                     .i64_type()
                     .const_int(1, true)
@@ -186,7 +195,7 @@ mod tests {
                         Box::new(TermNode::Nop),
                     )),
                 ),
-                context
+                context_ref
                     .context
                     .f64_type()
                     .const_float(0.8)
@@ -200,7 +209,7 @@ mod tests {
                         Box::new(TermNode::Nop),
                     )),
                 ),
-                context
+                context_ref
                     .context
                     .f64_type()
                     .const_float(1.0)
@@ -217,7 +226,7 @@ mod tests {
                         )),
                     )),
                 ),
-                context
+                context_ref
                     .context
                     .i64_type()
                     .const_int(6, true)
@@ -230,7 +239,7 @@ mod tests {
             .filter_map(|(term_node, expected_result)| {
                 let formatted_term_node = format!("{term_node:?}");
 
-                let result = term_node.generate_code(&context, None);
+                let result = term_node.generate_code(Rc::clone(&context_ref), None);
 
                 match result {
                     Ok(result) => {

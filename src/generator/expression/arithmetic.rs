@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use inkwell::values::{BasicValue, BasicValueEnum};
 use thiserror::Error;
 
@@ -27,16 +29,17 @@ impl<'a> CodeGenerator<'a> for ArithmeticNode {
 
     fn generate_code(
         &self,
-        context: &'a CodeGeneratorContext,
+        context: Rc<CodeGeneratorContext<'a>>,
         previous: Option<Self::Item>,
     ) -> anyhow::Result<Self::Item> {
         let (result, next) = match (self, previous) {
             (ArithmeticNode::Start(current, next), None) => {
-                (current.generate_code(context, None)?, next)
+                (current.generate_code(Rc::clone(&context), None)?, next)
             }
             (ArithmeticNode::Add(current, next), Some(previous)) => {
-                let current = current.generate_code(context, None)?;
-                let result = match basic_value_type_casted(context, previous, current)? {
+                let current = current.generate_code(Rc::clone(&context), None)?;
+                let result = match basic_value_type_casted(Rc::clone(&context), previous, current)?
+                {
                     BasicValueTypeCasted::Integer(lhs, rhs) => context
                         .builder
                         .build_int_add(lhs, rhs, "addtmp")?
@@ -57,8 +60,9 @@ impl<'a> CodeGenerator<'a> for ArithmeticNode {
                 (result, next)
             }
             (ArithmeticNode::Sub(current, next), Some(previous)) => {
-                let current = current.generate_code(context, None)?;
-                let result = match basic_value_type_casted(context, previous, current)? {
+                let current = current.generate_code(Rc::clone(&context), None)?;
+                let result = match basic_value_type_casted(Rc::clone(&context), previous, current)?
+                {
                     BasicValueTypeCasted::Integer(lhs, rhs) => context
                         .builder
                         .build_int_sub(lhs, rhs, "subtmp")?
@@ -103,10 +107,13 @@ mod tests {
     fn arithmetic_node_generation() {
         let outside_context = Context::create();
         let context = CodeGeneratorContext::new(&outside_context);
-        let function_type = context.context.void_type().fn_type(&[], false);
-        let function_value = context.module.add_function("main", function_type, None);
-        let function_entry_block = context.context.append_basic_block(function_value, "entry");
-        context.builder.position_at_end(function_entry_block);
+        let context_ref = Rc::new(context);
+        let function_type = context_ref.context.void_type().fn_type(&[], false);
+        let function_value = context_ref.module.add_function("main", function_type, None);
+        let function_entry_block = context_ref
+            .context
+            .append_basic_block(function_value, "entry");
+        context_ref.builder.position_at_end(function_entry_block);
 
         let tests = vec![
             (
@@ -129,7 +136,7 @@ mod tests {
                         Box::new(ArithmeticNode::Nop),
                     )),
                 ),
-                context
+                context_ref
                     .context
                     .i64_type()
                     .const_int(6, true)
@@ -155,7 +162,7 @@ mod tests {
                         Box::new(ArithmeticNode::Nop),
                     )),
                 ),
-                context
+                context_ref
                     .context
                     .i64_type()
                     .const_int(0, true)
@@ -181,7 +188,7 @@ mod tests {
                         Box::new(ArithmeticNode::Nop),
                     )),
                 ),
-                context
+                context_ref
                     .context
                     .f64_type()
                     .const_float(6.0)
@@ -207,7 +214,7 @@ mod tests {
                         Box::new(ArithmeticNode::Nop),
                     )),
                 ),
-                context
+                context_ref
                     .context
                     .f64_type()
                     .const_float(6.0)
@@ -233,7 +240,7 @@ mod tests {
                         Box::new(ArithmeticNode::Nop),
                     )),
                 ),
-                context
+                context_ref
                     .context
                     .i64_type()
                     .const_int(0, true)
@@ -259,7 +266,7 @@ mod tests {
                         Box::new(ArithmeticNode::Nop),
                     )),
                 ),
-                context
+                context_ref
                     .context
                     .i64_type()
                     .const_int(6, true)
@@ -285,7 +292,7 @@ mod tests {
                         Box::new(ArithmeticNode::Nop),
                     )),
                 ),
-                context
+                context_ref
                     .context
                     .f64_type()
                     .const_float(0.0)
@@ -311,7 +318,7 @@ mod tests {
                         Box::new(ArithmeticNode::Nop),
                     )),
                 ),
-                context
+                context_ref
                     .context
                     .f64_type()
                     .const_float(0.0)
@@ -324,7 +331,7 @@ mod tests {
             .filter_map(|(arithmetic_node, expected_result)| {
                 let formatted_arithmetic_node = format!("{arithmetic_node:?}");
 
-                let result = arithmetic_node.generate_code(&context, None);
+                let result = arithmetic_node.generate_code(Rc::clone(&context_ref), None);
 
                 match result {
                     Ok(result) => {

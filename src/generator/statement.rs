@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use inkwell::{
     types::BasicTypeEnum,
     values::{BasicValue, BasicValueEnum},
@@ -29,7 +31,7 @@ impl<'a> CodeGenerator<'a> for AssignmentStatementNode {
 
     fn generate_code(
         &self,
-        context: &'a CodeGeneratorContext,
+        context: Rc<CodeGeneratorContext<'a>>,
         _previous: Option<Self::Item>,
     ) -> anyhow::Result<Self::Item> {
         let (data, index_of) = match self {
@@ -37,14 +39,15 @@ impl<'a> CodeGenerator<'a> for AssignmentStatementNode {
             AssignmentStatementNode::Indexed(data, i) => (data, Some(i)),
         };
 
-        let reference = context.get_variable(&data.identifier);
+        let reference =
+            CodeGeneratorContext::get_variable(Rc::clone(&context), data.identifier.clone());
         let reference = reference.ok_or(
             AssignmentStatementNodeCodeGenerationError::UndeclaredVariable(data.identifier.clone()),
         )?;
 
         // Index the variable (if applicable)
         let (ptr_value, ctx_type) = if let Some(index_of) = index_of {
-            reference.index_of(context, index_of)?
+            reference.index_of(Rc::clone(&context), index_of)?
         } else {
             match reference.as_ref() {
                 VariableDefinition::NotIndexable(data) | VariableDefinition::Indexable(data, _) => {
@@ -53,7 +56,7 @@ impl<'a> CodeGenerator<'a> for AssignmentStatementNode {
             }
         };
 
-        let expression = data.expression.generate_code(context, None)?;
+        let expression = data.expression.generate_code(Rc::clone(&context), None)?;
 
         match (ctx_type, expression) {
             (BasicTypeEnum::IntType(ty), BasicValueEnum::IntValue(value)) => {
@@ -111,16 +114,14 @@ impl<'a> CodeGenerator<'a> for IfStatementNode {
 
     fn generate_code(
         &self,
-        context: &'a CodeGeneratorContext,
+        context: Rc<CodeGeneratorContext<'a>>,
         _previous: Option<Self::Item>,
     ) -> anyhow::Result<Self::Item> {
-        let cur_fn_value = context.fn_value();
+        let then_bb = context.context.insert_basic_block_after(context.builder.get_insert_block().unwrap(), "then");
+        let else_bb = context.context.insert_basic_block_after(then_bb, "else");
+        let cont_bb = context.context.insert_basic_block_after(else_bb, "ifcont");
 
-        let then_bb = context.context.append_basic_block(cur_fn_value, "then");
-        let else_bb = context.context.append_basic_block(cur_fn_value, "else");
-        let cont_bb = context.context.append_basic_block(cur_fn_value, "ifcont");
-
-        let cond = match self.condition.generate_code(context, None)? {
+        let cond = match self.condition.generate_code(Rc::clone(&context), None)? {
             BasicValueEnum::IntValue(value) => {
                 if value.get_type().get_bit_width() != 1 {
                     // NOTE: LANGUAGE SEMANTICS | RULE #7
@@ -153,7 +154,7 @@ impl<'a> CodeGenerator<'a> for IfStatementNode {
         context.builder.position_at_end(then_bb);
         self.then_block
             .iter()
-            .try_for_each(|stmt| stmt.generate_code(context, None))?;
+            .try_for_each(|stmt| stmt.generate_code(Rc::clone(&context), None))?;
         context.builder.build_unconditional_branch(cont_bb)?;
 
         // else block
@@ -161,7 +162,7 @@ impl<'a> CodeGenerator<'a> for IfStatementNode {
         if let Some(else_block) = &self.else_block {
             else_block
                 .iter()
-                .try_for_each(|stmt| stmt.generate_code(context, None))?;
+                .try_for_each(|stmt| stmt.generate_code(Rc::clone(&context), None))?;
         }
         context.builder.build_unconditional_branch(cont_bb)?;
 
@@ -183,21 +184,22 @@ impl<'a> CodeGenerator<'a> for LoopStatementNode {
 
     fn generate_code(
         &self,
-        context: &'a CodeGeneratorContext,
+        context: Rc<CodeGeneratorContext<'a>>,
         _previous: Option<Self::Item>,
     ) -> anyhow::Result<Self::Item> {
-        let cur_fn_value = context.fn_value();
-
-        let loop_bb = context.context.append_basic_block(cur_fn_value, "loop");
+        let loop_bb = context.context.insert_basic_block_after(context.builder.get_insert_block().unwrap(), "loop");
+        let loop_body_bb = context.context.insert_basic_block_after(loop_bb, "loop_body");
         let after_loop_bb = context
             .context
-            .append_basic_block(cur_fn_value, "afterloop");
+            .insert_basic_block_after(loop_body_bb, "afterloop");
+
+        context.builder.build_unconditional_branch(loop_bb)?;
 
         // loop block
         context.builder.position_at_end(loop_bb);
 
         // loop block: condition
-        let cond = match self.condition.generate_code(context, None)? {
+        let cond = match self.condition.generate_code(Rc::clone(&context), None)? {
             BasicValueEnum::IntValue(value) => {
                 if value.get_type().get_bit_width() != 1 {
                     // NOTE: LANGUAGE SEMANTICS | RULE #7
@@ -224,15 +226,17 @@ impl<'a> CodeGenerator<'a> for LoopStatementNode {
 
         context
             .builder
-            .build_conditional_branch(cond, loop_bb, after_loop_bb)?;
+            .build_conditional_branch(cond, loop_body_bb, after_loop_bb)?;
 
         // loop block: body
+        context.builder.position_at_end(loop_body_bb);
+        
         self.statements
             .iter()
-            .try_for_each(|stmt| stmt.generate_code(context, None))?;
+            .try_for_each(|stmt| stmt.generate_code(Rc::clone(&context), None))?;
 
         // loop block: assignment
-        self.assignment.generate_code(context, None)?;
+        self.assignment.generate_code(Rc::clone(&context), None)?;
 
         // loop block: back to top
         context.builder.build_unconditional_branch(loop_bb)?;
@@ -255,14 +259,14 @@ impl<'a> CodeGenerator<'a> for ReturnStatementNode {
 
     fn generate_code(
         &self,
-        context: &'a CodeGeneratorContext,
+        context: Rc<CodeGeneratorContext<'a>>,
         _previous: Option<Self::Item>,
     ) -> anyhow::Result<Self::Item> {
         let cur_fn_value = context.fn_value();
 
         let return_type = cur_fn_value.get_type().get_return_type();
 
-        let expr = self.0.generate_code(context, None)?;
+        let expr = self.0.generate_code(Rc::clone(&context), None)?;
 
         let ret_value = match (expr, return_type) {
             (BasicValueEnum::IntValue(value), Some(BasicTypeEnum::IntType(ty))) => {
@@ -314,13 +318,14 @@ impl<'a> CodeGenerator<'a> for StatementNode {
 
     fn generate_code(
         &self,
-        context: &'a CodeGeneratorContext,
+        context: Rc<CodeGeneratorContext<'a>>,
         _previous: Option<Self::Item>,
     ) -> anyhow::Result<Self::Item> {
         match self {
             StatementNode::Assignment(node) => node.generate_code(context, None)?,
             StatementNode::If(node) => node.generate_code(context, None)?,
-            _ => todo!(),
+            StatementNode::Loop(node) => node.generate_code(context, None)?,
+            StatementNode::Return(node) => node.generate_code(context, None)?,
         };
 
         Ok(())

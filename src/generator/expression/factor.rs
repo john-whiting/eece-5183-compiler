@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use inkwell::values::{BasicValue, BasicValueEnum};
 use thiserror::Error;
 
@@ -22,11 +24,12 @@ impl<'a> CodeGenerator<'a> for FactorNode {
 
     fn generate_code(
         &self,
-        context: &'a CodeGeneratorContext,
+        context: Rc<CodeGeneratorContext<'a>>,
         _previous: Option<Self::Item>,
     ) -> anyhow::Result<Self::Item> {
+        let other_context = Rc::clone(&context);
         Ok(match self {
-            FactorNode::Expression(x) => x.generate_code(context, None)?,
+            FactorNode::Expression(x) => x.generate_code(Rc::clone(&context), None)?,
             FactorNode::Number(x) => match x {
                 NumberNode::IntegerLiteral(n) => context
                     .context
@@ -44,14 +47,15 @@ impl<'a> CodeGenerator<'a> for FactorNode {
                 negated,
                 index_of,
             } => {
-                let reference = context.get_variable(identifier);
+                let reference =
+                    CodeGeneratorContext::get_variable(Rc::clone(&context), identifier.clone());
                 let reference = reference.ok_or(
                     FactorNodeCodeGenerationError::UndeclaredVariable(identifier.clone()),
                 )?;
 
                 // Index the variable (if applicable)
                 let (ptr_value, ctx_type) = if let Some(index_of) = index_of {
-                    reference.index_of(context, index_of)?
+                    reference.index_of(Rc::clone(&context), index_of)?
                 } else {
                     match reference.as_ref() {
                         VariableDefinition::NotIndexable(data)
@@ -122,6 +126,7 @@ mod tests {
     fn factor_node_generation() {
         let outside_context = Context::create();
         let context = CodeGeneratorContext::new(&outside_context);
+        let context_ref = Rc::new(context);
 
         let tests = vec![
             (
@@ -135,7 +140,7 @@ mod tests {
                     )),
                     Box::new(ExpressionNode::Nop),
                 ))),
-                context
+                context_ref
                     .context
                     .bool_type()
                     .const_int(1, false)
@@ -146,7 +151,7 @@ mod tests {
             // (FactorNode::NameNegated("test_var".to_string()), todo!("Test Name Lookup with Negation")),
             (
                 FactorNode::Number(NumberNode::IntegerLiteral(-5)),
-                context
+                context_ref
                     .context
                     .i64_type()
                     .const_int(0xfffffffffffffffb, true)
@@ -154,7 +159,7 @@ mod tests {
             ),
             (
                 FactorNode::Number(NumberNode::IntegerLiteral(2)),
-                context
+                context_ref
                     .context
                     .i64_type()
                     .const_int(2, true)
@@ -162,7 +167,7 @@ mod tests {
             ),
             (
                 FactorNode::Number(NumberNode::FloatLiteral(-1.6)),
-                context
+                context_ref
                     .context
                     .f64_type()
                     .const_float(-1.6)
@@ -170,7 +175,7 @@ mod tests {
             ),
             (
                 FactorNode::Number(NumberNode::FloatLiteral(1.6)),
-                context
+                context_ref
                     .context
                     .f64_type()
                     .const_float(1.6)
@@ -178,14 +183,14 @@ mod tests {
             ),
             (
                 FactorNode::String("Hello World!".to_string()),
-                context
+                context_ref
                     .context
                     .const_string(b"Hello World!", true)
                     .as_basic_value_enum(),
             ),
             (
                 FactorNode::True,
-                context
+                context_ref
                     .context
                     .bool_type()
                     .const_int(1, false)
@@ -193,7 +198,7 @@ mod tests {
             ),
             (
                 FactorNode::False,
-                context
+                context_ref
                     .context
                     .bool_type()
                     .const_int(0, false)
@@ -206,7 +211,7 @@ mod tests {
             .filter_map(|(factor_node, expected_result)| {
                 let formatted_factor_node = format!("{factor_node:?}");
 
-                let result = factor_node.generate_code(&context, None);
+                let result = factor_node.generate_code(Rc::clone(&context_ref), None);
 
                 if let Ok(result) = result {
                     if result != expected_result {

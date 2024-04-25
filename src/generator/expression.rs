@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use inkwell::values::{BasicValue, BasicValueEnum};
 use thiserror::Error;
 
@@ -34,13 +36,13 @@ impl<'a> CodeGenerator<'a> for ExpressionNode {
 
     fn generate_code(
         &self,
-        context: &'a CodeGeneratorContext,
+        context: Rc<CodeGeneratorContext<'a>>,
         previous: Option<Self::Item>,
     ) -> anyhow::Result<Self::Item> {
         let (result, next) = match (self, previous) {
             (ExpressionNode::Start(current, next), None) => match current {
                 ExpressionData::Not(current) => {
-                    let current = current.generate_code(context, None)?;
+                    let current = current.generate_code(Rc::clone(&context), None)?;
                     let result = match current {
                         BasicValueEnum::IntValue(int_value) => context
                             .builder
@@ -58,11 +60,14 @@ impl<'a> CodeGenerator<'a> for ExpressionNode {
 
                     (result, next)
                 }
-                ExpressionData::Nop(current) => (current.generate_code(context, None)?, next),
+                ExpressionData::Nop(current) => {
+                    (current.generate_code(Rc::clone(&context), None)?, next)
+                }
             },
             (ExpressionNode::And(current, next), Some(previous)) => {
-                let current = current.generate_code(context, None)?;
-                let result = match basic_value_type_casted(context, previous, current)? {
+                let current = current.generate_code(Rc::clone(&context), None)?;
+                let result = match basic_value_type_casted(Rc::clone(&context), previous, current)?
+                {
                     BasicValueTypeCasted::Integer(lhs, rhs) => context
                         .builder
                         .build_and(lhs, rhs, "andtmp")?
@@ -81,8 +86,9 @@ impl<'a> CodeGenerator<'a> for ExpressionNode {
                 (result, next)
             }
             (ExpressionNode::Or(current, next), Some(previous)) => {
-                let current = current.generate_code(context, None)?;
-                let result = match basic_value_type_casted(context, previous, current)? {
+                let current = current.generate_code(Rc::clone(&context), None)?;
+                let result = match basic_value_type_casted(Rc::clone(&context), previous, current)?
+                {
                     BasicValueTypeCasted::Integer(lhs, rhs) => context
                         .builder
                         .build_or(lhs, rhs, "ortmp")?
@@ -104,7 +110,7 @@ impl<'a> CodeGenerator<'a> for ExpressionNode {
             (_, _) => return Err(ExpressionNodeCodeGenerationError::MetaInvalidPrevious.into()),
         };
 
-        next.generate_code(context, Some(result))
+        next.generate_code(Rc::clone(&context), Some(result))
     }
 }
 
@@ -192,62 +198,65 @@ mod tests {
     fn expression_node_generation() {
         let outside_context = Context::create();
         let context = CodeGeneratorContext::new(&outside_context);
-        let function_type = context.context.void_type().fn_type(&[], false);
-        let function_value = context.module.add_function("main", function_type, None);
-        let function_entry_block = context.context.append_basic_block(function_value, "entry");
-        context.builder.position_at_end(function_entry_block);
+        let context_ref = Rc::new(context);
+        let function_type = context_ref.context.void_type().fn_type(&[], false);
+        let function_value = context_ref.module.add_function("main", function_type, None);
+        let function_entry_block = context_ref
+            .context
+            .append_basic_block(function_value, "entry");
+        context_ref.builder.position_at_end(function_entry_block);
 
         let tests = vec![
             (
                 simple_expression_node!(!FactorNode::False),
-                context.context.bool_type().const_int(1, false),
+                context_ref.context.bool_type().const_int(1, false),
             ),
             (
                 simple_expression_node!(!FactorNode::True),
-                context.context.bool_type().const_int(0, false),
+                context_ref.context.bool_type().const_int(0, false),
             ),
             (
                 simple_expression_node!((FactorNode::True) & (FactorNode::True)),
-                context.context.bool_type().const_int(1, false),
+                context_ref.context.bool_type().const_int(1, false),
             ),
             (
                 simple_expression_node!((FactorNode::True) & (FactorNode::False)),
-                context.context.bool_type().const_int(0, false),
+                context_ref.context.bool_type().const_int(0, false),
             ),
             (
                 simple_expression_node!((FactorNode::False) & (FactorNode::True)),
-                context.context.bool_type().const_int(0, false),
+                context_ref.context.bool_type().const_int(0, false),
             ),
             (
                 simple_expression_node!((FactorNode::False) & (FactorNode::False)),
-                context.context.bool_type().const_int(0, false),
+                context_ref.context.bool_type().const_int(0, false),
             ),
             (
                 simple_expression_node!((FactorNode::True) | (FactorNode::True)),
-                context.context.bool_type().const_int(1, false),
+                context_ref.context.bool_type().const_int(1, false),
             ),
             (
                 simple_expression_node!((FactorNode::True) | (FactorNode::False)),
-                context.context.bool_type().const_int(1, false),
+                context_ref.context.bool_type().const_int(1, false),
             ),
             (
                 simple_expression_node!((FactorNode::False) | (FactorNode::True)),
-                context.context.bool_type().const_int(1, false),
+                context_ref.context.bool_type().const_int(1, false),
             ),
             (
                 simple_expression_node!((FactorNode::False) | (FactorNode::False)),
-                context.context.bool_type().const_int(0, false),
+                context_ref.context.bool_type().const_int(0, false),
             ),
             (
                 simple_expression_node!(!FactorNode::Number(NumberNode::IntegerLiteral(1))),
-                context
+                context_ref
                     .context
                     .i64_type()
                     .const_int(0xfffffffffffffffe, true),
             ),
             (
                 simple_expression_node!(!FactorNode::Number(NumberNode::IntegerLiteral(0))),
-                context
+                context_ref
                     .context
                     .i64_type()
                     .const_int(0xffffffffffffffff, true),
@@ -257,14 +266,14 @@ mod tests {
                     (FactorNode::Number(NumberNode::IntegerLiteral(12)))
                         & (FactorNode::Number(NumberNode::IntegerLiteral(5)))
                 ),
-                context.context.i64_type().const_int(4, true),
+                context_ref.context.i64_type().const_int(4, true),
             ),
             (
                 simple_expression_node!(
                     (FactorNode::Number(NumberNode::IntegerLiteral(12)))
                         | (FactorNode::Number(NumberNode::IntegerLiteral(5)))
                 ),
-                context.context.i64_type().const_int(13, true),
+                context_ref.context.i64_type().const_int(13, true),
             ),
         ];
 
@@ -273,7 +282,7 @@ mod tests {
             .filter_map(|(expression_node, expected_result)| {
                 let formatted_expression_node = format!("{expression_node:?}");
 
-                let result = expression_node.generate_code(&context, None);
+                let result = expression_node.generate_code(Rc::clone(&context_ref), None);
 
                 match result {
                     Ok(result) => {

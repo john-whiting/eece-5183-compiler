@@ -16,6 +16,7 @@ use self::{cstd::CStd, mstd::Std, util::CodeGenerationErrorHint};
 mod cstd;
 mod expression;
 mod mstd;
+mod program;
 mod statement;
 mod util;
 mod variable;
@@ -48,9 +49,13 @@ pub enum VariableDefinition<'a> {
 impl<'a, 'b> VariableDefinition<'a> {
     pub fn index_of(
         &self,
-        context: &'a CodeGeneratorContext,
+        context: Rc<CodeGeneratorContext<'a>>,
         index_of: &'b ExpressionNode,
     ) -> anyhow::Result<(PointerValue<'a>, BasicTypeEnum<'a>)> {
+        let then_bb = context.context.insert_basic_block_after(context.builder.get_insert_block().unwrap(), "then");
+        let else_bb = context.context.insert_basic_block_after(then_bb, "else");
+        let cont_bb = context.context.insert_basic_block_after(else_bb, "ifcont");
+
         let (reference, size) = match self {
             VariableDefinition::Indexable(data, size) => Ok((data, Some(size))),
             // Only arrays can be indexed
@@ -65,7 +70,7 @@ impl<'a, 'b> VariableDefinition<'a> {
         // ctx_type is the inside type
         let ctx_type = reference.ctx_type.into_array_type().get_element_type();
 
-        let expr = index_of.generate_code(context, None)?;
+        let expr = index_of.generate_code(Rc::clone(&context), None)?;
 
         // LANGUAGE SEMANTICS | RULE #13
         // Arrays must be indexed by integers ONLY
@@ -101,21 +106,19 @@ impl<'a, 'b> VariableDefinition<'a> {
             "fails_bound_check",
         )?;
 
-        let current_fn_value = context.fn_value();
-        let then_bb = context.context.append_basic_block(current_fn_value, "then");
-        let cont_bb = context
-            .context
-            .append_basic_block(current_fn_value, "ifcont");
-
         context
             .builder
-            .build_conditional_branch(fails_bound_value, then_bb, cont_bb)
-            .unwrap();
+            .build_conditional_branch(fails_bound_value, then_bb, else_bb)?;
 
         // build the then block
         context.builder.position_at_end(then_bb);
         // TODO: Add out of bounds message
         context.cstd.exit(1)?;
+        context.builder.build_unconditional_branch(cont_bb)?;
+
+        // build the else block
+        context.builder.position_at_end(else_bb);
+        context.builder.build_unconditional_branch(cont_bb)?;
 
         // place builder at the continue block
         context.builder.position_at_end(cont_bb);
@@ -161,13 +164,13 @@ pub struct CodeGeneratorContext<'a> {
     // NOTE: LANGUAGE SEMANTICS | RULE #3
     // All "local" variables are for one procedure only.
     // There cannot be multiple "local" scopes at a time.
-    local_variables: HashMap<String, Rc<VariableDefinition<'a>>>,
+    local_variables: Rc<RefCell<HashMap<String, Rc<VariableDefinition<'a>>>>>,
     global_variables: Rc<RefCell<HashMap<String, Rc<VariableDefinition<'a>>>>>,
 
     // NOTE: LANGUAGE SEMANTICS | RULE #3
     // All "local" functions are for one procedure only.
     // There cannot be multiple "local" scopes at a time.
-    local_functions: HashMap<String, Rc<FunctionDefinition<'a>>>,
+    local_functions: Rc<RefCell<HashMap<String, Rc<FunctionDefinition<'a>>>>>,
     global_functions: Rc<RefCell<HashMap<String, Rc<FunctionDefinition<'a>>>>>,
 }
 
@@ -191,9 +194,9 @@ impl<'a> CodeGeneratorContext<'a> {
             std: _std,
             fn_value_opt: None,
             global_variables: Rc::new(RefCell::new(HashMap::new())),
-            local_variables: HashMap::new(),
+            local_variables: Rc::new(RefCell::new(HashMap::new())),
             global_functions: Rc::new(RefCell::new(HashMap::new())),
-            local_functions: HashMap::new(),
+            local_functions: Rc::new(RefCell::new(HashMap::new())),
         };
 
         CStd::register_to_generator_context(&mut context);
@@ -202,59 +205,69 @@ impl<'a> CodeGeneratorContext<'a> {
         context
     }
 
-    pub fn new_scope(&self) -> Self {
-        Self {
+    pub fn new_scope(&self, fn_def: Rc<FunctionDefinition<'a>>) -> Self {
+        let ret = Self {
             context: self.context,
             module: Rc::clone(&self.module),
             builder: Rc::clone(&self.builder),
             cstd: Rc::clone(&self.cstd),
             std: Rc::clone(&self.std),
-            fn_value_opt: self.fn_value_opt,
+            fn_value_opt: Some(fn_def.fn_value),
             global_variables: Rc::clone(&self.global_variables),
-            local_variables: HashMap::new(),
+            local_variables: Rc::new(RefCell::new(HashMap::new())),
             global_functions: Rc::clone(&self.global_functions),
-            local_functions: HashMap::new(),
-        }
+            local_functions: Rc::new(RefCell::new(HashMap::new())),
+        };
+        
+        // NOTE: LANGUAGE SEMANTICS | RULE #5
+        // Procedures should be defined inside their own scope
+        ret.local_functions.borrow_mut().insert(fn_def.identifier.clone(), fn_def);
+
+        ret
     }
 
-    pub fn get_variable(&self, identifier: &str) -> Option<Rc<VariableDefinition<'_>>> {
-        if let Some(d) = self.local_variables.get(identifier) {
+    pub fn get_variable(
+        context: Rc<Self>,
+        identifier: String,
+    ) -> Option<Rc<VariableDefinition<'a>>> {
+        if let Some(d) = context.local_variables.deref().borrow().get(&identifier) {
             return Some(Rc::clone(d));
         }
-        if let Some(d) = self.global_variables.deref().borrow().get(identifier) {
+        if let Some(d) = context.global_variables.deref().borrow().get(&identifier) {
             return Some(Rc::clone(d));
         }
         None
     }
 
     pub fn declare_variable(
-        &mut self,
+        &self,
         identifier: String,
         definition: VariableDefinition<'a>,
         is_global: bool,
     ) {
         if is_global {
-            self.global_variables
-                .deref()
-                .borrow_mut()
-                .insert(identifier, Rc::new(definition));
+            self.global_variables.deref().borrow_mut()
         } else {
-            self.local_variables.insert(identifier, Rc::new(definition));
+            self.local_variables.deref().borrow_mut()
         }
+        .insert(identifier, Rc::new(definition.clone()));
     }
 
-    pub fn get_function(&self, identifier: &str) -> Option<Rc<FunctionDefinition<'_>>> {
-        if let Some(d) = self.local_functions.get(identifier) {
+    pub fn get_function(
+        context: Rc<Self>,
+        identifier: String,
+    ) -> Option<Rc<FunctionDefinition<'a>>> {
+        if let Some(d) = context.local_functions.deref().borrow().get(&identifier) {
             return Some(Rc::clone(d));
         }
-        if let Some(d) = self.global_functions.deref().borrow().get(identifier) {
+        if let Some(d) = context.global_functions.deref().borrow().get(&identifier) {
             return Some(Rc::clone(d));
         }
         None
     }
 
     pub fn declare_function(
-        &mut self,
+        &self,
         identifier: String,
         fn_type: FunctionType<'a>,
         linkage: Option<Linkage>,
@@ -274,19 +287,16 @@ impl<'a> CodeGeneratorContext<'a> {
     }
 
     pub fn declare_function_from_definition(
-        &mut self,
+        &self,
         definition: FunctionDefinition<'a>,
         is_global: bool,
     ) {
         if is_global {
-            self.global_functions
-                .deref()
-                .borrow_mut()
-                .insert(definition.identifier.clone(), Rc::new(definition));
+            self.global_functions.deref().borrow_mut()
         } else {
-            self.local_functions
-                .insert(definition.identifier.clone(), Rc::new(definition));
+            self.local_functions.deref().borrow_mut()
         }
+        .insert(definition.identifier.clone(), Rc::new(definition));
     }
 
     pub fn fn_value(&self) -> FunctionValue<'a> {
@@ -300,7 +310,17 @@ pub trait CodeGenerator<'a> {
 
     fn generate_code(
         &self,
-        context: &'a CodeGeneratorContext,
+        context: Rc<CodeGeneratorContext<'a>>,
+        previous: Option<Self::Item>,
+    ) -> anyhow::Result<Self::Item>;
+}
+
+pub trait OwnedCodeGenerator<'a> {
+    type Item;
+
+    fn generate_code(
+        self,
+        context: Rc<CodeGeneratorContext<'a>>,
         previous: Option<Self::Item>,
     ) -> anyhow::Result<Self::Item>;
 }

@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use inkwell::{
     values::{BasicValue, BasicValueEnum},
     FloatPredicate, IntPredicate,
@@ -27,12 +29,15 @@ impl<'a> CodeGenerator<'a> for RelationNode {
 
     fn generate_code(
         &self,
-        context: &'a CodeGeneratorContext,
+        context: Rc<CodeGeneratorContext<'a>>,
         previous: Option<Self::Item>,
     ) -> anyhow::Result<Self::Item> {
         let (int_predicate, float_predicate, current, next, prev) = match (self, previous) {
             (RelationNode::Start(cur, next), None) => {
-                return next.generate_code(context, Some(cur.generate_code(context, None)?));
+                return next.generate_code(
+                    Rc::clone(&context),
+                    Some(cur.generate_code(Rc::clone(&context), None)?),
+                );
             }
             (RelationNode::LessThan(cur, next), Some(prev)) => {
                 (IntPredicate::SLT, FloatPredicate::OLT, cur, next, prev)
@@ -56,8 +61,8 @@ impl<'a> CodeGenerator<'a> for RelationNode {
             (_, _) => return Err(RelationNodeCodeGenerationError::MetaInvalidPrevious.into()),
         };
 
-        let current = current.generate_code(context, None)?;
-        let result = match basic_value_type_casted(context, prev, current)? {
+        let current = current.generate_code(Rc::clone(&context), None)?;
+        let result = match basic_value_type_casted(Rc::clone(&context), prev, current)? {
             BasicValueTypeCasted::Integer(lhs, rhs) => context
                 .builder
                 .build_int_compare(int_predicate, lhs, rhs, "cmptmp")?
@@ -149,18 +154,21 @@ mod tests {
     fn relation_node_generation() {
         let outside_context = Context::create();
         let context = CodeGeneratorContext::new(&outside_context);
-        let function_type = context.context.void_type().fn_type(&[], false);
-        let function_value = context.module.add_function("main", function_type, None);
-        let function_entry_block = context.context.append_basic_block(function_value, "entry");
-        context.builder.position_at_end(function_entry_block);
+        let context_ref = Rc::new(context);
+        let function_type = context_ref.context.void_type().fn_type(&[], false);
+        let function_value = context_ref.module.add_function("main", function_type, None);
+        let function_entry_block = context_ref
+            .context
+            .append_basic_block(function_value, "entry");
+        context_ref.builder.position_at_end(function_entry_block);
 
         let tests = vec![
-            comparison_tests!(context, RelationNode::LessThan, 1, 0, 0),
-            comparison_tests!(context, RelationNode::LessThanEqual, 1, 1, 0),
-            comparison_tests!(context, RelationNode::GreaterThan, 0, 0, 1),
-            comparison_tests!(context, RelationNode::GreaterThanEqual, 0, 1, 1),
-            comparison_tests!(context, RelationNode::Equal, 0, 1, 0),
-            comparison_tests!(context, RelationNode::NotEqual, 1, 0, 1),
+            comparison_tests!(context_ref, RelationNode::LessThan, 1, 0, 0),
+            comparison_tests!(context_ref, RelationNode::LessThanEqual, 1, 1, 0),
+            comparison_tests!(context_ref, RelationNode::GreaterThan, 0, 0, 1),
+            comparison_tests!(context_ref, RelationNode::GreaterThanEqual, 0, 1, 1),
+            comparison_tests!(context_ref, RelationNode::Equal, 0, 1, 0),
+            comparison_tests!(context_ref, RelationNode::NotEqual, 1, 0, 1),
         ];
 
         let failed_tests: Vec<_> = tests
@@ -169,7 +177,7 @@ mod tests {
             .filter_map(|(relation_node, expected_result)| {
                 let formatted_relation_node = format!("{relation_node:?}");
 
-                let result = relation_node.generate_code(&context, None);
+                let result = relation_node.generate_code(Rc::clone(&context_ref), None);
 
                 match result {
                     Ok(result) => {

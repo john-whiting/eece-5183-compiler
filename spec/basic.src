@@ -1,0 +1,44 @@
+Program MyTestProgram is
+
+variable i : integer;
+variable j : bool;
+variable k : integer;
+variable myArray : integer[15];
+
+begin
+
+i := 0;
+
+for (i := i + 1; i < 15)
+    k := i;
+end for;
+
+i := 0;
+for (i := i + 1; i < 15)
+    myArray[14 - i] := i;
+end for;
+
+//for (i := i + 1; i < 15)
+//    j = putString(myArray[i]);
+//end for;
+
+//if (i > 10) then
+//    i := 8;
+//    if (k > 5) then
+//        k := 2;
+//    end if;
+//end if;
+
+//if(i > 100) then
+////do something#
+//	i := 1110;
+//end if;
+
+//if(i > 1000) then
+////do something#
+//	i := 11100;
+//else
+//    k := 20;
+//end if;
+
+end program.

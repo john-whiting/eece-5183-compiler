@@ -14,7 +14,7 @@ pub mod procedure;
 pub mod statement;
 pub mod variable;
 
-mod util;
+pub mod util;
 
 #[derive(Debug)]
 pub enum DeclarationType {
@@ -60,7 +60,7 @@ fn declaration(input: ParseInput<'_>) -> ParseResult<DeclarationNode> {
 }
 
 #[derive(Debug)]
-pub struct ProgramHeaderNode(String);
+pub struct ProgramHeaderNode(pub String);
 fn program_header(input: ParseInput<'_>) -> ParseResult<ProgramHeaderNode> {
     let (input, _) = token!(input, Token::KwProgram)?;
     let (input, program_identifier) = identifier(input)?;
