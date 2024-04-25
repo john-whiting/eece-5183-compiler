@@ -113,11 +113,11 @@ macro_rules! accumulate_match {
                 partial_match: false,
                 ..
             }) => return Ok(($input, $acc)),
-            Err(e) => return Err(e),
-            Ok((i, o)) => {
+            Err(e) => Err(e),
+            Ok((i, o)) => Ok({
                 $input = i;
                 $acc.push(o);
-            }
+            })
         }
     }};
 }
@@ -139,7 +139,7 @@ pub fn many0<'a, T>(
     move |mut input| {
         let mut acc = Vec::new();
         loop {
-            accumulate_match!(f, acc, input);
+            accumulate_match!(f, acc, input)?;
         }
     }
 }
@@ -175,7 +175,8 @@ pub fn separated_list0<'a, S, T>(
         let mut acc = Vec::new();
 
         // Attempt to match one
-        accumulate_match!(f, acc, input);
+        let first_match = accumulate_match!(f, acc, input);
+        if first_match.is_err() { return Ok((input, acc)); }
 
         // Attempt to match more
         let (input, mut acc2) = many0(preceeded(&separator, &f))(input)?;

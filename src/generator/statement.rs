@@ -84,10 +84,10 @@ impl<'a> CodeGenerator<'a> for AssignmentStatementNode {
             (BasicTypeEnum::FloatType(_), BasicValueEnum::FloatValue(value)) => {
                 context.builder.build_store(ptr_value, value)?
             }
-            (BasicTypeEnum::ArrayType(_), _) => todo!("Array assignments are not yet supported"),
-            (BasicTypeEnum::PointerType(_), _) => {
-                todo!("Pointer assignments (strings?) are not yet supported")
+            (BasicTypeEnum::PointerType(_), BasicValueEnum::PointerValue(value)) => {
+                context.builder.build_store(ptr_value, value)?
             }
+            (BasicTypeEnum::ArrayType(_), _) => todo!("Array assignments are not yet supported"),
             (ty, value) => {
                 return Err(
                     AssignmentStatementNodeCodeGenerationError::IncompatibleTypes(
@@ -117,7 +117,9 @@ impl<'a> CodeGenerator<'a> for IfStatementNode {
         context: Rc<CodeGeneratorContext<'a>>,
         _previous: Option<Self::Item>,
     ) -> anyhow::Result<Self::Item> {
-        let then_bb = context.context.insert_basic_block_after(context.builder.get_insert_block().unwrap(), "then");
+        let then_bb = context
+            .context
+            .insert_basic_block_after(context.builder.get_insert_block().unwrap(), "then");
         let else_bb = context.context.insert_basic_block_after(then_bb, "else");
         let cont_bb = context.context.insert_basic_block_after(else_bb, "ifcont");
 
@@ -187,8 +189,12 @@ impl<'a> CodeGenerator<'a> for LoopStatementNode {
         context: Rc<CodeGeneratorContext<'a>>,
         _previous: Option<Self::Item>,
     ) -> anyhow::Result<Self::Item> {
-        let loop_bb = context.context.insert_basic_block_after(context.builder.get_insert_block().unwrap(), "loop");
-        let loop_body_bb = context.context.insert_basic_block_after(loop_bb, "loop_body");
+        let loop_bb = context
+            .context
+            .insert_basic_block_after(context.builder.get_insert_block().unwrap(), "loop");
+        let loop_body_bb = context
+            .context
+            .insert_basic_block_after(loop_bb, "loop_body");
         let after_loop_bb = context
             .context
             .insert_basic_block_after(loop_body_bb, "afterloop");
@@ -230,7 +236,7 @@ impl<'a> CodeGenerator<'a> for LoopStatementNode {
 
         // loop block: body
         context.builder.position_at_end(loop_body_bb);
-        
+
         self.statements
             .iter()
             .try_for_each(|stmt| stmt.generate_code(Rc::clone(&context), None))?;

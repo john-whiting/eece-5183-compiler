@@ -1,10 +1,10 @@
-use std::rc::Rc;
+use std::{any::Any, rc::Rc};
 
 use inkwell::{
     builder::{Builder, BuilderError},
     context::Context,
     module::{Linkage, Module},
-    values::{CallSiteValue, FunctionValue, PointerValue},
+    values::{BasicMetadataValueEnum, BasicValueEnum, CallSiteValue, FunctionValue, PointerValue},
     AddressSpace,
 };
 
@@ -70,9 +70,35 @@ impl<'a> CStd<'a> {
         }
     }
 
-    pub fn printf(&self, string: PointerValue<'a>) -> Result<CallSiteValue<'a>, BuilderError> {
+    pub fn printf(
+        &self,
+        format: &[u8],
+        args: Vec<BasicValueEnum<'a>>,
+    ) -> Result<CallSiteValue<'a>, BuilderError> {
+        let format = self.context.const_string(format, true);
+        let format_ptr = self
+            .builder
+            .build_alloca(format.get_type(), "printf_format")?;
+        self.builder.build_store(format_ptr, format)?;
+
+        let mut final_args = args
+            .into_iter()
+            .enumerate()
+            .map(|(idx, value)| {
+                // let ptr_value = self
+                //     .builder
+                //     .build_alloca(value.get_type(), format!("printf_stackvar_{idx}_").as_str())?;
+
+                // self.builder.build_store(ptr_value, value)?;
+
+                Ok(value.into())
+            })
+            .collect::<Result<Vec<BasicMetadataValueEnum>, BuilderError>>()?;
+
+        final_args.insert(0, format_ptr.into());
+
         self.builder
-            .build_call(self.fn_printf, &[string.into()], "call_printf")
+            .build_call(self.fn_printf, final_args.as_slice(), "call_printf")
     }
 
     pub fn scanf(

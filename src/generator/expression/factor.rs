@@ -12,7 +12,7 @@ use crate::{
 
 #[derive(Error, Debug)]
 pub enum FactorNodeCodeGenerationError {
-    #[error("Undeclared variable {0}")]
+    #[error("Undeclared variable {0}.")]
     UndeclaredVariable(String),
 
     #[error("Unable to negate {0} since only integer and float values can be negated.")]
@@ -27,7 +27,6 @@ impl<'a> CodeGenerator<'a> for FactorNode {
         context: Rc<CodeGeneratorContext<'a>>,
         _previous: Option<Self::Item>,
     ) -> anyhow::Result<Self::Item> {
-        let other_context = Rc::clone(&context);
         Ok(match self {
             FactorNode::Expression(x) => x.generate_code(Rc::clone(&context), None)?,
             FactorNode::Number(x) => match x {
@@ -86,15 +85,20 @@ impl<'a> CodeGenerator<'a> for FactorNode {
 
                 value.as_basic_value_enum()
             }
-            FactorNode::ProcedureCall(_) => todo!("Procedure calls are not yet supported!"),
+            FactorNode::ProcedureCall(node) => node.generate_code(Rc::clone(&context), None)?,
 
             // NOTE: LANGUAGE SEMANTICS | RULE #12
             // Strings are NULL TERMINATED
-            FactorNode::String(x) => context
-                .context
-                .const_string(x.as_bytes(), true)
-                .as_basic_value_enum(),
+            FactorNode::String(x) => {
+                let ptr_value = context.builder.build_alloca(context.str_type(), "str_const")?;
+                context.builder.build_store(ptr_value, context
+                    .context
+                    .const_string(x.as_bytes(), true)
+                    .as_basic_value_enum())?;
 
+                ptr_value.as_basic_value_enum()
+                
+            }
             // NOTE: LANGUAGE SEMANTICS | RULE #7
             // "True" bool values are represented as 1
             // "False bool values are represented as 0
@@ -147,8 +151,6 @@ mod tests {
                     .as_basic_value_enum(),
             ),
             // (FactorNode::ProcedureCall(ProcedureCallNode { identifier: "test_procedure".to_string(), arguments: vec![] } ), todo!("Test Procedure calling")),
-            // (FactorNode::Name("test_var".to_string()), todo!("Test Name Lookup")),
-            // (FactorNode::NameNegated("test_var".to_string()), todo!("Test Name Lookup with Negation")),
             (
                 FactorNode::Number(NumberNode::IntegerLiteral(-5)),
                 context_ref

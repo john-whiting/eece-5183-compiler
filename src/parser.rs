@@ -124,6 +124,7 @@ mod tests {
            
             global variable my_var : integer;
             variable my_var2 : bool [3];
+            variable my_var3 : bool;
 
             procedure test : float (variable t1 : integer, variable t2 : string, variable t3 : bool)
                 variable inside_var : string;
@@ -146,6 +147,8 @@ mod tests {
                 for (my_var := 0; my_var < 10)
                     my_var := my_var + 1 + my_var2[10];
                 end for;
+
+                my_var3 := test2();
 
                 // Return Statements
                 return test(5, "hello", true);

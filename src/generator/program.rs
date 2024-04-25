@@ -2,14 +2,18 @@ use std::{borrow::Borrow, rc::Rc};
 
 use inkwell::{
     types::{BasicMetadataTypeEnum, BasicType},
+    values::{BasicMetadataValueEnum, BasicValueEnum},
     AddressSpace,
 };
+use thiserror::Error;
 
 use crate::{
-    generator::VariableDefinition,
+    generator::{util::CodeGenerationErrorHint, VariableDefinition},
     parser::{
         general::{NumberNode, TypeMark},
-        procedure::{ProcedureBodyNode, ProcedureDeclarationNode, ProcedureHeaderNode},
+        procedure::{
+            ProcedureBodyNode, ProcedureCallNode, ProcedureDeclarationNode, ProcedureHeaderNode,
+        },
         variable::VariableDeclarationNode,
         DeclarationNode, DeclarationType, ProgramNode,
     },
@@ -133,7 +137,11 @@ pub fn declare_function_from_declaration<'a>(
         is_global,
     );
 
-    let function_definition = CodeGeneratorContext::get_function(Rc::clone(&context), declaration.header.identifier.clone()).unwrap();
+    let function_definition = CodeGeneratorContext::get_function(
+        Rc::clone(&context),
+        declaration.header.identifier.clone(),
+    )
+    .unwrap();
 
     let _new_context = context.new_scope(Rc::clone(&function_definition));
     let new_context = Rc::new(_new_context);
@@ -154,7 +162,9 @@ pub fn declare_function_from_declaration<'a>(
         .try_for_each(|stmt| stmt.generate_code(Rc::clone(&new_context), None))?;
 
     // Default return type is the "const_zero" of whatever the return is
-    context.builder.build_return(Some(&return_type.const_zero()))?;
+    context
+        .builder
+        .build_return(Some(&return_type.const_zero()))?;
 
     Ok(function_definition)
 }
@@ -212,5 +222,84 @@ impl<'a> OwnedCodeGenerator<'a> for ProgramNode {
         declare_function_from_declaration(context, &main_procedure_node, true)?;
 
         Ok(())
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum ProcedureCallNodeCodeGenerationError {
+    #[error("Undeclared function call {0}.")]
+    UndeclaredFunction(String),
+
+    #[error("Mismatched parameter types ({0}), expected ({1}).")]
+    MismatchedParamterTypes(String, String),
+
+    #[error("Unexpected void return. These are not supported.")]
+    UnexpectedVoidReturn,
+}
+
+impl<'a> CodeGenerator<'a> for ProcedureCallNode {
+    type Item = BasicValueEnum<'a>;
+
+    fn generate_code(
+        &self,
+        context: Rc<CodeGeneratorContext<'a>>,
+        _previous: Option<Self::Item>,
+    ) -> anyhow::Result<Self::Item> {
+        let reference =
+            CodeGeneratorContext::get_function(Rc::clone(&context), self.identifier.clone());
+        let reference = reference.ok_or(
+            ProcedureCallNodeCodeGenerationError::UndeclaredFunction(self.identifier.clone()),
+        )?;
+
+        let expected_param_types = reference.fn_type.get_param_types();
+
+        let parameters = self
+            .arguments
+            .iter()
+            .map(|arg| arg.generate_code(Rc::clone(&context), None))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        let parameter_types = parameters
+            .iter()
+            .map(|param| param.get_type())
+            .collect::<Vec<_>>();
+
+        // NOTE: LANGUAGE SEMANTICS | RULE #8
+        // The types of the procedure arguments must exactly match the expected argument types.
+        if expected_param_types != parameter_types {
+            let parameter_types = parameter_types
+                .iter()
+                .map(|ty| ty.error_hint())
+                .collect::<Vec<String>>()
+                .join(", ");
+
+            let expected_param_types = expected_param_types
+                .iter()
+                .map(|ty| ty.error_hint())
+                .collect::<Vec<String>>()
+                .join(", ");
+
+            return Err(
+                ProcedureCallNodeCodeGenerationError::MismatchedParamterTypes(
+                    parameter_types,
+                    expected_param_types,
+                )
+                .into(),
+            );
+        }
+
+        let parameters: Vec<BasicMetadataValueEnum> =
+            parameters.iter().by_ref().map(|&val| val.into()).collect();
+
+        // TODO: Implement pass-by-value for arrays
+        let call_value =
+            context
+                .builder
+                .build_call(reference.fn_value, parameters.as_slice(), "call")?;
+
+        Ok(match call_value.try_as_basic_value().left() {
+            Some(value) => value,
+            None => return Err(ProcedureCallNodeCodeGenerationError::UnexpectedVoidReturn.into()),
+        })
     }
 }

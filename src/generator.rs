@@ -4,8 +4,9 @@ use inkwell::{
     builder::Builder,
     context::Context,
     module::{Linkage, Module},
-    types::{BasicTypeEnum, FunctionType},
+    types::{BasicTypeEnum, FunctionType, PointerType},
     values::{BasicValueEnum, FunctionValue, PointerValue},
+    AddressSpace,
 };
 use thiserror::Error;
 
@@ -52,7 +53,9 @@ impl<'a, 'b> VariableDefinition<'a> {
         context: Rc<CodeGeneratorContext<'a>>,
         index_of: &'b ExpressionNode,
     ) -> anyhow::Result<(PointerValue<'a>, BasicTypeEnum<'a>)> {
-        let then_bb = context.context.insert_basic_block_after(context.builder.get_insert_block().unwrap(), "then");
+        let then_bb = context
+            .context
+            .insert_basic_block_after(context.builder.get_insert_block().unwrap(), "then");
         let else_bb = context.context.insert_basic_block_after(then_bb, "else");
         let cont_bb = context.context.insert_basic_block_after(else_bb, "ifcont");
 
@@ -112,7 +115,18 @@ impl<'a, 'b> VariableDefinition<'a> {
 
         // build the then block
         context.builder.position_at_end(then_bb);
-        // TODO: Add out of bounds message
+        let err_str_ptr_value = context
+            .builder
+            .build_alloca(context.str_type(), "error_str")?;
+        context.builder.build_store(
+            err_str_ptr_value,
+            context
+                .context
+                .const_string(b"Runtime Exception: Out of bounds error!", true),
+        )?;
+        context
+            .cstd
+            .printf(b"%s\n", vec![err_str_ptr_value.into()])?;
         context.cstd.exit(1)?;
         context.builder.build_unconditional_branch(cont_bb)?;
 
@@ -218,12 +232,18 @@ impl<'a> CodeGeneratorContext<'a> {
             global_functions: Rc::clone(&self.global_functions),
             local_functions: Rc::new(RefCell::new(HashMap::new())),
         };
-        
+
         // NOTE: LANGUAGE SEMANTICS | RULE #5
         // Procedures should be defined inside their own scope
-        ret.local_functions.borrow_mut().insert(fn_def.identifier.clone(), fn_def);
+        ret.local_functions
+            .borrow_mut()
+            .insert(fn_def.identifier.clone(), fn_def);
 
         ret
+    }
+
+    pub fn str_type(&self) -> PointerType<'a> {
+        self.context.i8_type().ptr_type(AddressSpace::default())
     }
 
     pub fn get_variable(

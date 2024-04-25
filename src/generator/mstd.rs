@@ -5,7 +5,7 @@ use inkwell::{
     context::Context,
     module::Module,
     values::FunctionValue,
-    IntPredicate,
+    AddressSpace, IntPredicate,
 };
 
 use super::{cstd::CStd, CodeGeneratorContext, FunctionDefinition};
@@ -18,7 +18,7 @@ fn add_std_get_bool<'a>(
 ) -> Result<FunctionValue<'a>, BuilderError> {
     let fn_type = context.bool_type().fn_type(&[], false);
 
-    let fn_value = module.add_function("getBool", fn_type, None);
+    let fn_value = module.add_function("getbool", fn_type, None);
 
     let basic_block = context.append_basic_block(fn_value, "entry");
     builder.position_at_end(basic_block);
@@ -56,7 +56,7 @@ fn add_std_get_integer<'a>(
 ) -> Result<FunctionValue<'a>, BuilderError> {
     let fn_type = context.i64_type().fn_type(&[], false);
 
-    let fn_value = module.add_function("getInteger", fn_type, None);
+    let fn_value = module.add_function("getinteger", fn_type, None);
 
     let basic_block = context.append_basic_block(fn_value, "entry");
     builder.position_at_end(basic_block);
@@ -87,7 +87,7 @@ fn add_std_get_float<'a>(
 ) -> Result<FunctionValue<'a>, BuilderError> {
     let fn_type = context.f64_type().fn_type(&[], false);
 
-    let fn_value = module.add_function("getFloat", fn_type, None);
+    let fn_value = module.add_function("getfloat", fn_type, None);
 
     let basic_block = context.append_basic_block(fn_value, "entry");
     builder.position_at_end(basic_block);
@@ -110,10 +110,140 @@ fn add_std_get_float<'a>(
     Ok(fn_value)
 }
 
+fn add_std_get_string<'a>(
+    cstd: &CStd<'a>,
+    context: &'a Context,
+    module: &Module<'a>,
+    builder: &Builder<'a>,
+) -> Result<FunctionValue<'a>, BuilderError> {
+    let fn_type = context
+        .i8_type()
+        .ptr_type(AddressSpace::default())
+        .fn_type(&[], false);
+
+    let fn_value = module.add_function("getstring", fn_type, None);
+
+    let basic_block = context.append_basic_block(fn_value, "entry");
+    builder.position_at_end(basic_block);
+
+    // NOTE: Hardcoded max read size of 1024 characters
+    let ptr_type = context.i8_type().array_type(1024);
+
+    let str_variable = builder.build_alloca(ptr_type, "local_string")?;
+
+    cstd.scanf(b"%s", str_variable)?;
+
+    builder.build_return(Some(&str_variable))?;
+
+    Ok(fn_value)
+}
+
+fn add_std_put_bool<'a>(
+    cstd: &CStd<'a>,
+    context: &'a Context,
+    module: &Module<'a>,
+    builder: &Builder<'a>,
+) -> Result<FunctionValue<'a>, BuilderError> {
+    let fn_type = context
+        .bool_type()
+        .fn_type(&[context.bool_type().into()], false);
+
+    let fn_value = module.add_function("putbool", fn_type, None);
+
+    let basic_block = context.append_basic_block(fn_value, "entry");
+    builder.position_at_end(basic_block);
+
+    let arg0 = fn_value.get_first_param().unwrap();
+
+    cstd.printf(b"%d\n", vec![arg0])?;
+
+    builder.build_return(Some(&context.bool_type().const_int(1, true)))?;
+
+    Ok(fn_value)
+}
+
+fn add_std_put_integer<'a>(
+    cstd: &CStd<'a>,
+    context: &'a Context,
+    module: &Module<'a>,
+    builder: &Builder<'a>,
+) -> Result<FunctionValue<'a>, BuilderError> {
+    let fn_type = context
+        .bool_type()
+        .fn_type(&[context.i64_type().into()], false);
+
+    let fn_value = module.add_function("putinteger", fn_type, None);
+
+    let basic_block = context.append_basic_block(fn_value, "entry");
+    builder.position_at_end(basic_block);
+
+    let arg0 = fn_value.get_first_param().unwrap();
+
+    cstd.printf(b"%d\n", vec![arg0])?;
+
+    builder.build_return(Some(&context.bool_type().const_int(1, true)))?;
+
+    Ok(fn_value)
+}
+
+fn add_std_put_float<'a>(
+    cstd: &CStd<'a>,
+    context: &'a Context,
+    module: &Module<'a>,
+    builder: &Builder<'a>,
+) -> Result<FunctionValue<'a>, BuilderError> {
+    let fn_type = context
+        .bool_type()
+        .fn_type(&[context.f64_type().into()], false);
+
+    let fn_value = module.add_function("putfloat", fn_type, None);
+
+    let basic_block = context.append_basic_block(fn_value, "entry");
+    builder.position_at_end(basic_block);
+
+    let arg0 = fn_value.get_first_param().unwrap();
+
+    cstd.printf(b"%f\n", vec![arg0])?;
+
+    builder.build_return(Some(&context.bool_type().const_int(1, true)))?;
+
+    Ok(fn_value)
+}
+
+fn add_std_put_string<'a>(
+    cstd: &CStd<'a>,
+    context: &'a Context,
+    module: &Module<'a>,
+    builder: &Builder<'a>,
+) -> Result<FunctionValue<'a>, BuilderError> {
+    let fn_type = context.bool_type().fn_type(
+        &[context.i8_type().ptr_type(AddressSpace::default()).into()],
+        false,
+    );
+
+    let fn_value = module.add_function("putstring", fn_type, None);
+
+    let basic_block = context.append_basic_block(fn_value, "entry");
+    builder.position_at_end(basic_block);
+
+    let arg0 = fn_value.get_first_param().unwrap();
+
+    cstd.printf(b"%s", vec![arg0])?;
+
+    builder.build_return(Some(&context.bool_type().const_int(1, true)))?;
+
+    Ok(fn_value)
+}
+
 pub struct Std<'a> {
     pub fn_get_bool: FunctionValue<'a>,
     pub fn_get_integer: FunctionValue<'a>,
     pub fn_get_float: FunctionValue<'a>,
+    pub fn_get_string: FunctionValue<'a>,
+    pub fn_put_bool: FunctionValue<'a>,
+    pub fn_put_integer: FunctionValue<'a>,
+    pub fn_put_float: FunctionValue<'a>,
+    pub fn_put_string: FunctionValue<'a>,
 }
 
 impl<'a> Std<'a> {
@@ -129,11 +259,26 @@ impl<'a> Std<'a> {
             .expect("getInteger std function is constant");
         let fn_get_float = add_std_get_float(cstd, context, &module, &builder)
             .expect("getFloat std function is constant");
+        let fn_get_string = add_std_get_string(cstd, context, &module, &builder)
+            .expect("getString std function is constant");
+        let fn_put_bool = add_std_put_bool(cstd, context, &module, &builder)
+            .expect("putBool std function is constant");
+        let fn_put_integer = add_std_put_integer(cstd, context, &module, &builder)
+            .expect("putInteger std function is constant");
+        let fn_put_float = add_std_put_float(cstd, context, &module, &builder)
+            .expect("putFloat std function is constant");
+        let fn_put_string = add_std_put_string(cstd, context, &module, &builder)
+            .expect("putStr std function is constant");
 
         Self {
             fn_get_bool,
             fn_get_integer,
             fn_get_float,
+            fn_get_string,
+            fn_put_bool,
+            fn_put_integer,
+            fn_put_float,
+            fn_put_string,
         }
     }
 
@@ -148,6 +293,26 @@ impl<'a> Std<'a> {
         );
         context.declare_function_from_definition(
             FunctionDefinition::new(context.std.fn_get_float),
+            true,
+        );
+        context.declare_function_from_definition(
+            FunctionDefinition::new(context.std.fn_get_string),
+            true,
+        );
+        context.declare_function_from_definition(
+            FunctionDefinition::new(context.std.fn_put_bool),
+            true,
+        );
+        context.declare_function_from_definition(
+            FunctionDefinition::new(context.std.fn_put_integer),
+            true,
+        );
+        context.declare_function_from_definition(
+            FunctionDefinition::new(context.std.fn_put_float),
+            true,
+        );
+        context.declare_function_from_definition(
+            FunctionDefinition::new(context.std.fn_put_string),
             true,
         );
     }

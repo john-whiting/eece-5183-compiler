@@ -36,6 +36,10 @@ pub fn right_parenthesis(input: ParseInput<'_>) -> ParseResult<Token> {
     token!(input, Token::RightParenthesis)
 }
 
+pub fn right_parenthesis_not_partial(input: ParseInput<'_>) -> ParseResult<Token> {
+    not_partial!(token!(input, Token::RightParenthesis))
+}
+
 pub fn else_kw(input: ParseInput<'_>) -> ParseResult<Token> {
     not_partial!(token!(input, Token::KwElse))
 }

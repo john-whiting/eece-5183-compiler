@@ -3,6 +3,7 @@ Program MyTestProgram is
 variable i : integer;
 variable j : bool;
 variable k : integer;
+variable l : string;
 variable myArray : integer[15];
 
 begin
@@ -11,16 +12,33 @@ i := 0;
 
 for (i := i + 1; i < 15)
     k := i;
+    j := putString("Counting: ");
+    j := putInteger(i);
 end for;
+
+j := putString("Please enter a number: ");
+i := getInteger();
+j := putString("You entered: ");
+j := putInteger(i);
+
+j := putString("Please enter a string: ");
+l := getString();
+j := putString("You entered: ");
+j := putString(l);
+j := putInteger(-1);
 
 i := 0;
 for (i := i + 1; i < 15)
     myArray[14 - i] := i;
 end for;
 
-//for (i := i + 1; i < 15)
-//    j = putString(myArray[i]);
-//end for;
+i := 0;
+for (i := i + 1; i < 15)
+    j := putString("Index: ");
+    j := putInteger(i);
+    j := putString("Value: ");
+    j := putInteger(myArray[i]);
+end for;
 
 //if (i > 10) then
 //    i := 8;
