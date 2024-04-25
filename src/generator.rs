@@ -5,7 +5,7 @@ use inkwell::{
     context::Context,
     module::{Linkage, Module},
     types::{BasicTypeEnum, FunctionType},
-    values::{BasicValueEnum, FunctionValue, IntValue, PointerValue},
+    values::{BasicValueEnum, FunctionValue, PointerValue},
 };
 use thiserror::Error;
 
@@ -16,6 +16,7 @@ use self::{cstd::CStd, mstd::Std, util::CodeGenerationErrorHint};
 mod cstd;
 mod expression;
 mod mstd;
+mod statement;
 mod util;
 mod variable;
 
@@ -44,11 +45,11 @@ pub enum VariableDefinition<'a> {
     NotIndexable(VariableDefinitionData<'a>),
 }
 
-impl<'a> VariableDefinition<'a> {
+impl<'a, 'b> VariableDefinition<'a> {
     pub fn index_of(
         &self,
         context: &'a CodeGeneratorContext,
-        index_of: ExpressionNode,
+        index_of: &'b ExpressionNode,
     ) -> anyhow::Result<(PointerValue<'a>, BasicTypeEnum<'a>)> {
         let (reference, size) = match self {
             VariableDefinition::Indexable(data, size) => Ok((data, Some(size))),
@@ -298,7 +299,7 @@ pub trait CodeGenerator<'a> {
     type Item;
 
     fn generate_code(
-        self,
+        &self,
         context: &'a CodeGeneratorContext,
         previous: Option<Self::Item>,
     ) -> anyhow::Result<Self::Item>;

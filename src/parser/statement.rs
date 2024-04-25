@@ -95,7 +95,7 @@ pub fn loop_statement(input: ParseInput<'_>) -> ParseResult<LoopStatementNode> {
 }
 
 #[derive(Debug)]
-pub struct ReturnStatementNode(ExpressionNode);
+pub struct ReturnStatementNode(pub ExpressionNode);
 pub fn return_statement(input: ParseInput<'_>) -> ParseResult<ReturnStatementNode> {
     let (input, _) = token!(input, Token::KwReturn)?;
     let (input, expr) = expression(input)?;

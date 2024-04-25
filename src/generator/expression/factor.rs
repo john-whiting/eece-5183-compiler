@@ -21,7 +21,7 @@ impl<'a> CodeGenerator<'a> for FactorNode {
     type Item = BasicValueEnum<'a>;
 
     fn generate_code(
-        self,
+        &self,
         context: &'a CodeGeneratorContext,
         _previous: Option<Self::Item>,
     ) -> anyhow::Result<Self::Item> {
@@ -31,12 +31,12 @@ impl<'a> CodeGenerator<'a> for FactorNode {
                 NumberNode::IntegerLiteral(n) => context
                     .context
                     .i64_type()
-                    .const_int(n as u64, true)
+                    .const_int(*n as u64, true)
                     .as_basic_value_enum(),
                 NumberNode::FloatLiteral(n) => context
                     .context
                     .f64_type()
-                    .const_float(n)
+                    .const_float(*n)
                     .as_basic_value_enum(),
             },
             FactorNode::Name {
@@ -44,14 +44,14 @@ impl<'a> CodeGenerator<'a> for FactorNode {
                 negated,
                 index_of,
             } => {
-                let reference = context.get_variable(&identifier);
+                let reference = context.get_variable(identifier);
                 let reference = reference.ok_or(
                     FactorNodeCodeGenerationError::UndeclaredVariable(identifier.clone()),
                 )?;
 
                 // Index the variable (if applicable)
                 let (ptr_value, ctx_type) = if let Some(index_of) = index_of {
-                    reference.index_of(context, *index_of)?
+                    reference.index_of(context, index_of)?
                 } else {
                     match reference.as_ref() {
                         VariableDefinition::NotIndexable(data)
@@ -61,7 +61,7 @@ impl<'a> CodeGenerator<'a> for FactorNode {
 
                 let mut value = context.builder.build_load(ctx_type, ptr_value, "load")?;
 
-                if negated {
+                if *negated {
                     value = match value {
                         BasicValueEnum::IntValue(value) => context
                             .builder

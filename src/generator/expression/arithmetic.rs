@@ -26,7 +26,7 @@ impl<'a> CodeGenerator<'a> for ArithmeticNode {
     type Item = BasicValueEnum<'a>;
 
     fn generate_code(
-        self,
+        &self,
         context: &'a CodeGeneratorContext,
         previous: Option<Self::Item>,
     ) -> anyhow::Result<Self::Item> {

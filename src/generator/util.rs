@@ -1,8 +1,11 @@
 use inkwell::{
     builder::BuilderError,
-    types::{ArrayType, BasicTypeEnum, FloatType, IntType},
+    types::{ArrayType, BasicType, BasicTypeEnum, FloatType, IntType},
     values::{BasicValueEnum, FloatValue, IntValue},
+    AddressSpace,
 };
+
+use crate::parser::general::TypeMark;
 
 use super::CodeGeneratorContext;
 
@@ -103,6 +106,22 @@ impl<'a> CodeGenerationErrorHint for BasicValueEnum<'a> {
             BasicValueEnum::VectorValue(_) => "vector".to_string(),
             BasicValueEnum::PointerValue(_) => "pointer".to_string(),
         }
+    }
+}
+
+pub fn type_mark_to_llvm_type<'a>(
+    context: &'a CodeGeneratorContext,
+    type_mark: &'_ TypeMark,
+) -> BasicTypeEnum<'a> {
+    match type_mark {
+        TypeMark::Bool => context.context.bool_type().as_basic_type_enum(),
+        TypeMark::Float => context.context.f64_type().as_basic_type_enum(),
+        TypeMark::Integer => context.context.i64_type().as_basic_type_enum(),
+        TypeMark::String => context
+            .context
+            .i8_type()
+            .ptr_type(AddressSpace::default())
+            .as_basic_type_enum(),
     }
 }
 
