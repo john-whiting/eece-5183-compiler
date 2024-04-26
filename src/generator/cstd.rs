@@ -116,15 +116,17 @@ impl<'a> CStd<'a> {
     }
 
     pub fn register_to_generator_context(context: &mut CodeGeneratorContext<'a>) {
-        context.declare_function_from_definition(
-            FunctionDefinition::new(context.cstd.fn_printf),
-            true,
-        );
         context
-            .declare_function_from_definition(FunctionDefinition::new(context.cstd.fn_scanf), true);
+            .declare_function_from_definition(FunctionDefinition::new(context.cstd.fn_printf), true)
+            .expect("CStd functions should never be duplicated.");
         context
-            .declare_function_from_definition(FunctionDefinition::new(context.cstd.fn_exit), true);
+            .declare_function_from_definition(FunctionDefinition::new(context.cstd.fn_scanf), true)
+            .expect("CStd functions should never be duplicated.");
         context
-            .declare_function_from_definition(FunctionDefinition::new(context.cstd.fn_sqrt), true);
+            .declare_function_from_definition(FunctionDefinition::new(context.cstd.fn_exit), true)
+            .expect("CStd functions should never be duplicated.");
+        context
+            .declare_function_from_definition(FunctionDefinition::new(context.cstd.fn_sqrt), true)
+            .expect("CStd functions should never be duplicated.");
     }
 }

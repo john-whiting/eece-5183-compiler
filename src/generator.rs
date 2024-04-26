@@ -184,6 +184,19 @@ impl<'a> FunctionDefinition<'a> {
     }
 }
 
+#[derive(Error, Debug)]
+pub enum CodeGeneratorImplErr {
+    #[error(
+        "A variable with the name {0} is already present in the scope. Cannot redeclare variables."
+    )]
+    CannotRedeclareVariable(String),
+
+    #[error(
+        "A function with the name {0} is already present in the scope. Cannot redeclare functions."
+    )]
+    CannotRedeclareFunction(String),
+}
+
 pub struct CodeGeneratorContext<'a> {
     pub context: &'a Context,
     pub module: Rc<Module<'a>>,
@@ -283,13 +296,18 @@ impl<'a> CodeGeneratorContext<'a> {
         identifier: String,
         definition: VariableDefinition<'a>,
         is_global: bool,
-    ) {
-        if is_global {
+    ) -> Result<(), CodeGeneratorImplErr> {
+        let mut variable_set = if is_global {
             self.global_variables.deref().borrow_mut()
         } else {
             self.local_variables.deref().borrow_mut()
+        };
+        if variable_set.contains_key(&identifier) {
+            return Err(CodeGeneratorImplErr::CannotRedeclareVariable(identifier));
         }
-        .insert(identifier, Rc::new(definition.clone()));
+        variable_set.insert(identifier, Rc::new(definition.clone()));
+
+        Ok(())
     }
 
     pub fn get_function(
@@ -312,7 +330,7 @@ impl<'a> CodeGeneratorContext<'a> {
         linkage: Option<Linkage>,
         is_global: bool,
         no_mangle: bool,
-    ) -> FunctionValue<'a> {
+    ) -> Result<FunctionValue<'a>, CodeGeneratorImplErr> {
         let mangle_string = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
         let mangled_identifier = format!("__{identifier}_{mangle_string}");
         let fn_value = self.module.add_function(
@@ -331,22 +349,29 @@ impl<'a> CodeGeneratorContext<'a> {
             fn_value,
         };
 
-        self.declare_function_from_definition(definition, is_global);
+        self.declare_function_from_definition(definition, is_global)?;
 
-        fn_value
+        Ok(fn_value)
     }
 
     pub fn declare_function_from_definition(
         &self,
         definition: FunctionDefinition<'a>,
         is_global: bool,
-    ) {
-        if is_global {
+    ) -> Result<(), CodeGeneratorImplErr> {
+        let mut function_set = if is_global {
             self.global_functions.deref().borrow_mut()
         } else {
             self.local_functions.deref().borrow_mut()
+        };
+        if function_set.contains_key(&definition.identifier) {
+            return Err(CodeGeneratorImplErr::CannotRedeclareFunction(
+                definition.identifier,
+            ));
         }
-        .insert(definition.identifier.clone(), Rc::new(definition));
+        function_set.insert(definition.identifier.clone(), Rc::new(definition));
+
+        Ok(())
     }
 
     pub fn fn_value(&self) -> FunctionValue<'a> {

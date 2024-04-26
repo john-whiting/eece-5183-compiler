@@ -283,37 +283,53 @@ impl<'a> Std<'a> {
     }
 
     pub fn register_to_generator_context(context: &mut CodeGeneratorContext<'a>) {
-        context.declare_function_from_definition(
-            FunctionDefinition::new(context.std.fn_get_bool),
-            true,
-        );
-        context.declare_function_from_definition(
-            FunctionDefinition::new(context.std.fn_get_integer),
-            true,
-        );
-        context.declare_function_from_definition(
-            FunctionDefinition::new(context.std.fn_get_float),
-            true,
-        );
-        context.declare_function_from_definition(
-            FunctionDefinition::new(context.std.fn_get_string),
-            true,
-        );
-        context.declare_function_from_definition(
-            FunctionDefinition::new(context.std.fn_put_bool),
-            true,
-        );
-        context.declare_function_from_definition(
-            FunctionDefinition::new(context.std.fn_put_integer),
-            true,
-        );
-        context.declare_function_from_definition(
-            FunctionDefinition::new(context.std.fn_put_float),
-            true,
-        );
-        context.declare_function_from_definition(
-            FunctionDefinition::new(context.std.fn_put_string),
-            true,
-        );
+        context
+            .declare_function_from_definition(
+                FunctionDefinition::new(context.std.fn_get_bool),
+                true,
+            )
+            .expect("Std functions should never be duplicated.");
+        context
+            .declare_function_from_definition(
+                FunctionDefinition::new(context.std.fn_get_integer),
+                true,
+            )
+            .expect("Std functions should never be duplicated.");
+        context
+            .declare_function_from_definition(
+                FunctionDefinition::new(context.std.fn_get_float),
+                true,
+            )
+            .expect("Std functions should never be duplicated.");
+        context
+            .declare_function_from_definition(
+                FunctionDefinition::new(context.std.fn_get_string),
+                true,
+            )
+            .expect("Std functions should never be duplicated.");
+        context
+            .declare_function_from_definition(
+                FunctionDefinition::new(context.std.fn_put_bool),
+                true,
+            )
+            .expect("Std functions should never be duplicated.");
+        context
+            .declare_function_from_definition(
+                FunctionDefinition::new(context.std.fn_put_integer),
+                true,
+            )
+            .expect("Std functions should never be duplicated.");
+        context
+            .declare_function_from_definition(
+                FunctionDefinition::new(context.std.fn_put_float),
+                true,
+            )
+            .expect("Std functions should never be duplicated.");
+        context
+            .declare_function_from_definition(
+                FunctionDefinition::new(context.std.fn_put_string),
+                true,
+            )
+            .expect("Std functions should never be duplicated.");
     }
 }

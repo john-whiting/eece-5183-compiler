@@ -85,7 +85,7 @@ pub fn declare_variable_from_declaration<'a>(
         Some(size) => VariableDefinition::Indexable(data, size),
     };
 
-    context.declare_variable(identifier.clone(), definition, is_global);
+    context.declare_variable(identifier.clone(), definition, is_global)?;
 
     Ok(CodeGeneratorContext::get_variable(context, identifier).unwrap())
 }
@@ -154,7 +154,7 @@ pub fn declare_parameter_from_declaration<'a>(
         Some(size) => VariableDefinition::Indexable(data, size),
     };
 
-    context.declare_variable(identifier.clone(), definition, false);
+    context.declare_variable(identifier.clone(), definition, false)?;
 
     Ok(CodeGeneratorContext::get_variable(context, identifier).unwrap())
 }
@@ -203,7 +203,7 @@ pub fn declare_function_from_declaration<'a>(
         None,
         is_global,
         context.fn_value_opt.is_none(), // Don't mangle the first function (main)
-    );
+    )?;
 
     let function_definition = CodeGeneratorContext::get_function(
         Rc::clone(&context),
