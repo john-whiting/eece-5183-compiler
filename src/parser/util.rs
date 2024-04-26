@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::scanner::{Scanner, ScannerItem};
 
 #[derive(Debug, Clone)]
@@ -18,6 +20,12 @@ impl ParseError {
             partial_match,
             halting,
         }
+    }
+}
+
+impl Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}: {}", self.line_count, self.column_count, self.message)
     }
 }
 

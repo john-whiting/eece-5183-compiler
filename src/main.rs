@@ -103,7 +103,11 @@ fn main() {
 
     if let Err(err) = compile_program(Rc::clone(&context), basic_program) {
         println!("An error occurred when compiling the program!");
-        println!("{err}");
+        match err.downcast() {
+            Ok(ParserError::Error(err)) => println!("{err}"),
+            Ok(err) => println!("{err}"),
+            Err(err) => println!("{err}"),
+        }
         exit(1);
     }
 
