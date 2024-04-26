@@ -2,7 +2,7 @@ use std::{borrow::Borrow, rc::Rc};
 
 use inkwell::{
     types::{BasicMetadataTypeEnum, BasicType},
-    values::{BasicMetadataValueEnum, BasicValueEnum},
+    values::{BasicMetadataValueEnum, BasicValueEnum, MetadataValue, PointerValue},
     AddressSpace,
 };
 use thiserror::Error;
@@ -63,7 +63,14 @@ pub fn declare_variable_from_declaration<'a>(
         _ => return Err(VariableDeclarationNodeCodeGenerationError::UnsupportedBound.into()),
     };
 
-    let ptr_value = context.builder.build_alloca(ctx_type, &data.identifier)?;
+    let ptr_value = if is_global {
+        let gv = context.module.add_global(ctx_type, None, &data.identifier);
+        gv.set_linkage(inkwell::module::Linkage::Common);
+        gv.set_initializer(&ctx_type.const_zero());
+        gv.as_pointer_value()
+    } else {
+        context.builder.build_alloca(ctx_type, &data.identifier)?
+    };
 
     let identifier = data.identifier.clone();
 
@@ -79,6 +86,73 @@ pub fn declare_variable_from_declaration<'a>(
     };
 
     context.declare_variable(identifier.clone(), definition, is_global);
+
+    Ok(CodeGeneratorContext::get_variable(context, identifier).unwrap())
+}
+
+pub fn declare_parameter_from_declaration<'a>(
+    context: Rc<CodeGeneratorContext<'a>>,
+    declaration: &VariableDeclarationNode,
+    basic_value: BasicValueEnum<'a>,
+) -> anyhow::Result<Rc<VariableDefinition<'a>>> {
+    let (data, size) = match declaration {
+        VariableDeclarationNode::Unbounded(data) => (data, 1),
+        VariableDeclarationNode::Bounded(data, size) => (
+            data,
+            match size {
+                NumberNode::IntegerLiteral(i) => *i,
+                NumberNode::FloatLiteral(_) => {
+                    return Err(VariableDeclarationNodeCodeGenerationError::NonIntegerBound.into())
+                }
+            },
+        ),
+    };
+
+    let ctx_type = match data.variable_type {
+        TypeMark::Bool => context.context.bool_type().as_basic_type_enum(),
+        TypeMark::Float => context.context.f64_type().as_basic_type_enum(),
+        TypeMark::Integer => context.context.i64_type().as_basic_type_enum(),
+        TypeMark::String => context
+            .context
+            .i8_type()
+            .ptr_type(AddressSpace::default())
+            .as_basic_type_enum(),
+    };
+
+    let (ctx_type, size) = match size {
+        1 => (ctx_type, None),
+        2..=MAX_SUPPORTED_ARRAY_SIZE => {
+            let size = size as u32;
+            (ctx_type.array_type(size).as_basic_type_enum(), Some(size))
+        }
+        _ => return Err(VariableDeclarationNodeCodeGenerationError::UnsupportedBound.into()),
+    };
+
+    let identifier = data.identifier.clone();
+
+    let entry = context.fn_value().get_first_basic_block().unwrap();
+
+    match entry.get_first_instruction() {
+        Some(first_instr) => context.builder.position_before(&first_instr),
+        None => context.builder.position_at_end(entry),
+    }
+
+    let ptr_value = context.builder.build_alloca(basic_value.get_type(), "alloc")?;
+    
+    context.builder.build_store(ptr_value, basic_value)?;
+
+    let data = VariableDefinitionData {
+        identifier: data.identifier.clone(),
+        ctx_type,
+        ptr_value,
+    };
+
+    let definition = match size {
+        None => VariableDefinition::NotIndexable(data),
+        Some(size) => VariableDefinition::Indexable(data, size),
+    };
+
+    context.declare_variable(identifier.clone(), definition, false);
 
     Ok(CodeGeneratorContext::get_variable(context, identifier).unwrap())
 }
@@ -102,14 +176,21 @@ pub fn declare_function_from_declaration<'a>(
     let mut parameter_types: Vec<BasicMetadataTypeEnum<'a>> = vec![];
 
     for node in &declaration.header.parameters {
-        let definition = declare_variable_from_declaration(Rc::clone(&context), node, false)?;
-
-        let data = match definition.borrow() {
-            VariableDefinition::NotIndexable(data) => data,
-            VariableDefinition::Indexable(data, _) => data,
+        let data = match node {
+            VariableDeclarationNode::Unbounded(data) => data,
+            VariableDeclarationNode::Bounded(data, _) => data,
         };
 
-        parameter_types.push(data.ctx_type.into());
+        parameter_types.push(match data.variable_type {
+            TypeMark::Bool => context.context.bool_type().into(),
+            TypeMark::Float => context.context.f64_type().into(),
+            TypeMark::Integer => context.context.i64_type().into(),
+            TypeMark::String => context
+                .context
+                .i8_type()
+                .ptr_type(AddressSpace::default())
+                .into(),
+        });
     }
 
     let parameter_types = declaration
@@ -150,10 +231,27 @@ pub fn declare_function_from_declaration<'a>(
     new_context.builder.position_at_end(entry_bb);
 
     declaration
+        .header
+        .parameters
+        .iter()
+        .enumerate()
+        .map(|(idx, node)| {
+            declare_parameter_from_declaration(
+                Rc::clone(&new_context),
+                node,
+                fn_value.get_nth_param(idx as u32).unwrap(),
+            )
+        }).collect::<anyhow::Result<Vec<_>>>()?;
+
+    new_context.builder.position_at_end(entry_bb);
+
+    declaration
         .body
         .declarations
         .iter()
         .try_for_each(|dec| dec.generate_code(Rc::clone(&new_context), None))?;
+
+    new_context.builder.position_at_end(entry_bb);
 
     declaration
         .body
@@ -162,9 +260,11 @@ pub fn declare_function_from_declaration<'a>(
         .try_for_each(|stmt| stmt.generate_code(Rc::clone(&new_context), None))?;
 
     // Default return type is the "const_zero" of whatever the return is
-    context
-        .builder
-        .build_return(Some(&return_type.const_zero()))?;
+    if new_context.builder.get_insert_block().unwrap().get_terminator().is_none() {
+        new_context
+            .builder
+            .build_return(Some(&return_type.const_zero()))?;
+    }
 
     Ok(function_definition)
 }

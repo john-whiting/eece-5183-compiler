@@ -157,7 +157,16 @@ impl<'a> CodeGenerator<'a> for IfStatementNode {
         self.then_block
             .iter()
             .try_for_each(|stmt| stmt.generate_code(Rc::clone(&context), None))?;
-        context.builder.build_unconditional_branch(cont_bb)?;
+
+        if context
+            .builder
+            .get_insert_block()
+            .unwrap()
+            .get_terminator()
+            .is_none()
+        {
+            context.builder.build_unconditional_branch(cont_bb)?;
+        }
 
         // else block
         context.builder.position_at_end(else_bb);
@@ -166,7 +175,16 @@ impl<'a> CodeGenerator<'a> for IfStatementNode {
                 .iter()
                 .try_for_each(|stmt| stmt.generate_code(Rc::clone(&context), None))?;
         }
-        context.builder.build_unconditional_branch(cont_bb)?;
+
+        if context
+            .builder
+            .get_insert_block()
+            .unwrap()
+            .get_terminator()
+            .is_none()
+        {
+            context.builder.build_unconditional_branch(cont_bb)?;
+        }
 
         // clean up
         context.builder.position_at_end(cont_bb);
@@ -199,7 +217,18 @@ impl<'a> CodeGenerator<'a> for LoopStatementNode {
             .context
             .insert_basic_block_after(loop_body_bb, "afterloop");
 
-        context.builder.build_unconditional_branch(loop_bb)?;
+        // Set initial value
+        self.assignment.generate_code(Rc::clone(&context), None)?;
+
+        if context
+            .builder
+            .get_insert_block()
+            .unwrap()
+            .get_terminator()
+            .is_none()
+        {
+            context.builder.build_unconditional_branch(loop_bb)?;
+        }
 
         // loop block
         context.builder.position_at_end(loop_bb);
@@ -241,11 +270,16 @@ impl<'a> CodeGenerator<'a> for LoopStatementNode {
             .iter()
             .try_for_each(|stmt| stmt.generate_code(Rc::clone(&context), None))?;
 
-        // loop block: assignment
-        self.assignment.generate_code(Rc::clone(&context), None)?;
-
         // loop block: back to top
-        context.builder.build_unconditional_branch(loop_bb)?;
+        if context
+            .builder
+            .get_insert_block()
+            .unwrap()
+            .get_terminator()
+            .is_none()
+        {
+            context.builder.build_unconditional_branch(loop_bb)?;
+        }
 
         // clean up
         context.builder.position_at_end(after_loop_bb);

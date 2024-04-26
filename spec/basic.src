@@ -1,62 +1,35 @@
-Program MyTestProgram is
+program RecursiveFib is
 
+global variable x : integer;
 variable i : integer;
-variable j : bool;
-variable k : integer;
-variable l : string;
-variable myArray : integer[15];
+variable max : integer;
+variable out: bool;
+
+procedure Fib : integer(variable val :integer)
+
+	procedure Sub : integer(variable val1 : integer)
+		begin
+			return val1 - 1;
+		end procedure;
+
+	begin
+	if(val == 0) then
+		return 0;
+	end if;
+	if(val == 1) then
+		return 1;
+	end if;
+	return Fib(Sub(val)) + Fib(Sub(Sub(val)));
+end procedure;
+
 
 begin
 
-i := 0;
-
-for (i := i + 1; i < 15)
-    k := i;
-    j := putString("Counting: ");
-    j := putInteger(i);
+max := getInteger();
+for(i := 0; i < max)
+	x := Fib(i);
+    out := putInteger(x);
+	i := i + 1;
 end for;
-
-j := putString("Please enter a number: ");
-i := getInteger();
-j := putString("You entered: ");
-j := putInteger(i);
-
-j := putString("Please enter a string: ");
-l := getString();
-j := putString("You entered: ");
-j := putString(l);
-j := putInteger(-1);
-
-i := 0;
-for (i := i + 1; i < 15)
-    myArray[14 - i] := i;
-end for;
-
-i := 0;
-for (i := i + 1; i < 15)
-    j := putString("Index: ");
-    j := putInteger(i);
-    j := putString("Value: ");
-    j := putInteger(myArray[i]);
-end for;
-
-//if (i > 10) then
-//    i := 8;
-//    if (k > 5) then
-//        k := 2;
-//    end if;
-//end if;
-
-//if(i > 100) then
-////do something#
-//	i := 1110;
-//end if;
-
-//if(i > 1000) then
-////do something#
-//	i := 11100;
-//else
-//    k := 20;
-//end if;
 
 end program.

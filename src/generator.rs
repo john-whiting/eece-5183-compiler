@@ -128,11 +128,29 @@ impl<'a, 'b> VariableDefinition<'a> {
             .cstd
             .printf(b"%s\n", vec![err_str_ptr_value.into()])?;
         context.cstd.exit(1)?;
-        context.builder.build_unconditional_branch(cont_bb)?;
+
+        if context
+            .builder
+            .get_insert_block()
+            .unwrap()
+            .get_terminator()
+            .is_none()
+        {
+            context.builder.build_unconditional_branch(cont_bb)?;
+        }
 
         // build the else block
         context.builder.position_at_end(else_bb);
-        context.builder.build_unconditional_branch(cont_bb)?;
+        
+        if context
+            .builder
+            .get_insert_block()
+            .unwrap()
+            .get_terminator()
+            .is_none()
+        {
+            context.builder.build_unconditional_branch(cont_bb)?;
+        }
 
         // place builder at the continue block
         context.builder.position_at_end(cont_bb);

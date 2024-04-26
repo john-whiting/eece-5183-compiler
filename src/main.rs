@@ -28,6 +28,7 @@ fn main() {
 
     compile_program(Rc::clone(&context), basic_program).expect("Encounted error when compiling.");
 
+    context.module.print_to_stderr();
     context.module.write_bitcode_to_path(Path::new("./spec/target/basic.bc"));
 
     println!("Hello, world!");
