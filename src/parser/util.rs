@@ -117,7 +117,7 @@ macro_rules! accumulate_match {
             Ok((i, o)) => Ok({
                 $input = i;
                 $acc.push(o);
-            })
+            }),
         }
     }};
 }
@@ -176,7 +176,9 @@ pub fn separated_list0<'a, S, T>(
 
         // Attempt to match one
         let first_match = accumulate_match!(f, acc, input);
-        if first_match.is_err() { return Ok((input, acc)); }
+        if first_match.is_err() {
+            return Ok((input, acc));
+        }
 
         // Attempt to match more
         let (input, mut acc2) = many0(preceeded(&separator, &f))(input)?;

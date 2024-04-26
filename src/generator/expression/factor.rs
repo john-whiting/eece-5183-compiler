@@ -90,14 +90,18 @@ impl<'a> CodeGenerator<'a> for FactorNode {
             // NOTE: LANGUAGE SEMANTICS | RULE #12
             // Strings are NULL TERMINATED
             FactorNode::String(x) => {
-                let ptr_value = context.builder.build_alloca(context.str_type(), "str_const")?;
-                context.builder.build_store(ptr_value, context
-                    .context
-                    .const_string(x.as_bytes(), true)
-                    .as_basic_value_enum())?;
+                let ptr_value = context
+                    .builder
+                    .build_alloca(context.str_type(), "str_const")?;
+                context.builder.build_store(
+                    ptr_value,
+                    context
+                        .context
+                        .const_string(x.as_bytes(), true)
+                        .as_basic_value_enum(),
+                )?;
 
                 ptr_value.as_basic_value_enum()
-                
             }
             // NOTE: LANGUAGE SEMANTICS | RULE #7
             // "True" bool values are represented as 1

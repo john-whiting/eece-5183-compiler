@@ -2,12 +2,9 @@ use std::rc::Rc;
 
 use inkwell::{
     builder::BuilderError,
-    types::{ArrayType, BasicType, BasicTypeEnum, FloatType, IntType},
+    types::{ArrayType, BasicTypeEnum, FloatType, IntType},
     values::{BasicValueEnum, FloatValue, IntValue},
-    AddressSpace,
 };
-
-use crate::parser::general::TypeMark;
 
 use super::CodeGeneratorContext;
 

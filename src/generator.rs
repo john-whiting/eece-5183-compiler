@@ -142,7 +142,7 @@ impl<'a, 'b> VariableDefinition<'a> {
 
         // build the else block
         context.builder.position_at_end(else_bb);
-        
+
         if context
             .builder
             .get_insert_block()
@@ -315,7 +315,15 @@ impl<'a> CodeGeneratorContext<'a> {
     ) -> FunctionValue<'a> {
         let mangle_string = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
         let mangled_identifier = format!("__{identifier}_{mangle_string}");
-        let fn_value = self.module.add_function(if no_mangle { &identifier } else { &mangled_identifier }, fn_type, linkage);
+        let fn_value = self.module.add_function(
+            if no_mangle {
+                &identifier
+            } else {
+                &mangled_identifier
+            },
+            fn_type,
+            linkage,
+        );
 
         let definition = FunctionDefinition {
             identifier,

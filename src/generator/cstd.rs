@@ -1,4 +1,4 @@
-use std::{any::Any, rc::Rc};
+use std::rc::Rc;
 
 use inkwell::{
     builder::{Builder, BuilderError},
@@ -83,17 +83,8 @@ impl<'a> CStd<'a> {
 
         let mut final_args = args
             .into_iter()
-            .enumerate()
-            .map(|(idx, value)| {
-                // let ptr_value = self
-                //     .builder
-                //     .build_alloca(value.get_type(), format!("printf_stackvar_{idx}_").as_str())?;
-
-                // self.builder.build_store(ptr_value, value)?;
-
-                Ok(value.into())
-            })
-            .collect::<Result<Vec<BasicMetadataValueEnum>, BuilderError>>()?;
+            .map(|value| value.into())
+            .collect::<Vec<BasicMetadataValueEnum>>();
 
         final_args.insert(0, format_ptr.into());
 

@@ -1,5 +1,9 @@
 use std::{
-    fs, io::{self, Write}, path::PathBuf, process::{exit, Command}, rc::Rc
+    fs,
+    io::{self, Write},
+    path::PathBuf,
+    process::{exit, Command},
+    rc::Rc,
 };
 
 use clap::Parser;
@@ -103,7 +107,9 @@ fn main() {
         exit(1);
     }
 
-    let output_path = args.output_path.unwrap_or(src_path.with_file_name(src_path_base_file_name));
+    let output_path = args
+        .output_path
+        .unwrap_or(src_path.with_file_name(src_path_base_file_name));
     let output_path_str = output_path.as_os_str().to_string_lossy();
     let output_path_base_file_name = output_path
         .file_name()
@@ -145,7 +151,6 @@ fn main() {
             exit(2);
         }
     }
-
 
     if !args.emit_bc {
         fs::remove_file(bc_path)

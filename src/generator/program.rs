@@ -1,8 +1,8 @@
-use std::{borrow::Borrow, rc::Rc};
+use std::rc::Rc;
 
 use inkwell::{
     types::{BasicMetadataTypeEnum, BasicType},
-    values::{BasicMetadataValueEnum, BasicValueEnum, MetadataValue, PointerValue},
+    values::{BasicMetadataValueEnum, BasicValueEnum},
     AddressSpace,
 };
 use thiserror::Error;
@@ -137,8 +137,10 @@ pub fn declare_parameter_from_declaration<'a>(
         None => context.builder.position_at_end(entry),
     }
 
-    let ptr_value = context.builder.build_alloca(basic_value.get_type(), "alloc")?;
-    
+    let ptr_value = context
+        .builder
+        .build_alloca(basic_value.get_type(), &identifier)?;
+
     context.builder.build_store(ptr_value, basic_value)?;
 
     let data = VariableDefinitionData {
@@ -193,22 +195,6 @@ pub fn declare_function_from_declaration<'a>(
         });
     }
 
-    let parameter_types = declaration
-        .header
-        .parameters
-        .iter()
-        .map(|node| {
-            let definition = declare_variable_from_declaration(Rc::clone(&context), node, false)?;
-
-            let data = match definition.borrow() {
-                VariableDefinition::NotIndexable(data) => data,
-                VariableDefinition::Indexable(data, _) => data,
-            };
-
-            Ok(data.ctx_type.into())
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
-
     let new_fn_type = return_type.fn_type(&parameter_types, false);
 
     let fn_value = context.declare_function(
@@ -216,6 +202,7 @@ pub fn declare_function_from_declaration<'a>(
         new_fn_type,
         None,
         is_global,
+        context.fn_value_opt.is_none(), // Don't mangle the first function (main)
     );
 
     let function_definition = CodeGeneratorContext::get_function(
@@ -241,7 +228,8 @@ pub fn declare_function_from_declaration<'a>(
                 node,
                 fn_value.get_nth_param(idx as u32).unwrap(),
             )
-        }).collect::<anyhow::Result<Vec<_>>>()?;
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
 
     new_context.builder.position_at_end(entry_bb);
 
@@ -260,7 +248,13 @@ pub fn declare_function_from_declaration<'a>(
         .try_for_each(|stmt| stmt.generate_code(Rc::clone(&new_context), None))?;
 
     // Default return type is the "const_zero" of whatever the return is
-    if new_context.builder.get_insert_block().unwrap().get_terminator().is_none() {
+    if new_context
+        .builder
+        .get_insert_block()
+        .unwrap()
+        .get_terminator()
+        .is_none()
+    {
         new_context
             .builder
             .build_return(Some(&return_type.const_zero()))?;
