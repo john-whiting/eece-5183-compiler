@@ -8,6 +8,7 @@ use inkwell::{
     values::{BasicValueEnum, FunctionValue, PointerValue},
     AddressSpace,
 };
+use rand::distributions::{Alphanumeric, DistString};
 use thiserror::Error;
 
 use crate::parser::expression::ExpressionNode;
@@ -310,8 +311,11 @@ impl<'a> CodeGeneratorContext<'a> {
         fn_type: FunctionType<'a>,
         linkage: Option<Linkage>,
         is_global: bool,
+        no_mangle: bool,
     ) -> FunctionValue<'a> {
-        let fn_value = self.module.add_function(&identifier, fn_type, linkage);
+        let mangle_string = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
+        let mangled_identifier = format!("__{identifier}_{mangle_string}");
+        let fn_value = self.module.add_function(if no_mangle { &identifier } else { &mangled_identifier }, fn_type, linkage);
 
         let definition = FunctionDefinition {
             identifier,
