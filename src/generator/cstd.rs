@@ -4,7 +4,7 @@ use inkwell::{
     builder::{Builder, BuilderError},
     context::Context,
     module::{Linkage, Module},
-    values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, CallSiteValue, FunctionValue, IntValue, PointerValue},
+    values::{BasicMetadataValueEnum, BasicValueEnum, CallSiteValue, FunctionValue, IntValue, PointerValue},
     AddressSpace,
 };
 
@@ -133,7 +133,7 @@ impl<'a> CStd<'a> {
 
         Ok(match call_value.try_as_basic_value().left() {
             Some(value) => {
-                self.printf(b"%s == %s -> %d\n", vec![str1.as_basic_value_enum(), str2.as_basic_value_enum(), value])?;
+                // self.printf(b"%s == %s -> %d\n", vec![str1.as_basic_value_enum(), str2.as_basic_value_enum(), value])?;
                 self.builder.build_int_s_extend(value.into_int_value(), self.context.i64_type(), "i32_to_i64")?
             },
             None => unreachable!("LibC's strcmp should always return a basic value."),
