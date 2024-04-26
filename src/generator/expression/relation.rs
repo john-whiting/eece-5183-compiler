@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use inkwell::{
+    types::BasicType,
     values::{BasicValue, BasicValueEnum},
     FloatPredicate, IntPredicate,
 };
@@ -62,6 +63,30 @@ impl<'a> CodeGenerator<'a> for RelationNode {
         };
 
         let current = current.generate_code(Rc::clone(&context), None)?;
+
+        let str_type = context.str_type().as_basic_type_enum();
+
+        let (prev, current) = if (str_type == prev.get_type() && str_type == current.get_type())
+            && (matches!(int_predicate, IntPredicate::EQ | IntPredicate::NE))
+        {
+            // NOTE: LANGUAGE SEMANTICS | RULE #11
+            // Strings *should* be comparable for EQ and NE
+
+            (
+                context
+                    .cstd
+                    .strcmp(prev.into_pointer_value(), current.into_pointer_value())?
+                    .as_basic_value_enum(),
+                context
+                    .context
+                    .i64_type()
+                    .const_int(0, true)
+                    .as_basic_value_enum(),
+            )
+        } else {
+            (prev, current)
+        };
+        
         let result = match basic_value_type_casted(Rc::clone(&context), prev, current)? {
             BasicValueTypeCasted::Integer(lhs, rhs) => context
                 .builder

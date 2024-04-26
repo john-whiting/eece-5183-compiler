@@ -1,35 +1,42 @@
 program RecursiveFib is
 
-global variable x : integer;
-variable i : integer;
-variable max : integer;
-variable out: bool;
+variable result : bool;
 
-procedure Fib : integer(variable val :integer)
 
-	procedure Sub : integer(variable val1 : integer)
-		begin
-			return val1 - 1;
-		end procedure;
+procedure test : bool ()
+variable x : string;
+variable y : string;
+	variable input : string;
 
-	begin
-	if(val == 0) then
-		return 0;
-	end if;
-	if(val == 1) then
-		return 1;
-	end if;
-	return Fib(Sub(val)) + Fib(Sub(Sub(val)));
+begin
+	
+
+x := "hello";
+y := "goodbye";
+
+result := putString("Enter a string: ");
+input := getString();
+
+result := putString("You inputted: '");
+result := putString(input);
+result := putString("', so I respond with: ");
+
+if (input == x) then
+	result := putString("Hello, there!");
+end if;
+
+if (input == y) then
+	result := putString("Sorry to see you go!");
+end if;
+
+if ((input != x) & (input != y)) then
+	result := putString("How are you doing?");
+end if;
+
 end procedure;
-
 
 begin
 
-max := getInteger();
-for(i := 0; i < max)
-	x := Fib(i);
-    out := putInteger(x);
-	i := i + 1;
-end for;
+result := test();
 
 end program.

@@ -23,6 +23,11 @@ mod statement;
 mod util;
 mod variable;
 
+pub enum VariableLocation {
+    Global,
+    Local,
+}
+
 #[derive(Error, Debug)]
 pub enum VariableDefinitionImplErr {
     #[error("Unable to index {0}.")]
@@ -278,17 +283,28 @@ impl<'a> CodeGeneratorContext<'a> {
         self.context.i8_type().ptr_type(AddressSpace::default())
     }
 
+    pub fn get_variable_and_location(
+        context: Rc<Self>,
+        identifier: String,
+    ) -> Option<(Rc<VariableDefinition<'a>>, VariableLocation)> {
+        if let Some(d) = context.local_variables.deref().borrow().get(&identifier) {
+            return Some((Rc::clone(d), VariableLocation::Local));
+        }
+        if let Some(d) = context.global_variables.deref().borrow().get(&identifier) {
+            return Some((Rc::clone(d), VariableLocation::Global));
+        }
+        None
+    }
+
     pub fn get_variable(
         context: Rc<Self>,
         identifier: String,
     ) -> Option<Rc<VariableDefinition<'a>>> {
-        if let Some(d) = context.local_variables.deref().borrow().get(&identifier) {
-            return Some(Rc::clone(d));
+        if let Some((definition, _)) = Self::get_variable_and_location(context, identifier) {
+            Some(definition)
+        } else {
+            None
         }
-        if let Some(d) = context.global_variables.deref().borrow().get(&identifier) {
-            return Some(Rc::clone(d));
-        }
-        None
     }
 
     pub fn declare_variable(
@@ -303,7 +319,7 @@ impl<'a> CodeGeneratorContext<'a> {
             self.local_variables.deref().borrow_mut()
         };
         if variable_set.contains_key(&identifier) {
-            return Err(CodeGeneratorImplErr::CannotRedeclareVariable(identifier));
+            return Err(CodeGeneratorImplErr::CannotRedeclareVariable(identifier))
         }
         variable_set.insert(identifier, Rc::new(definition.clone()));
 
@@ -365,12 +381,10 @@ impl<'a> CodeGeneratorContext<'a> {
             self.local_functions.deref().borrow_mut()
         };
         if function_set.contains_key(&definition.identifier) {
-            return Err(CodeGeneratorImplErr::CannotRedeclareFunction(
-                definition.identifier,
-            ));
+            return Err(CodeGeneratorImplErr::CannotRedeclareFunction(definition.identifier))
         }
         function_set.insert(definition.identifier.clone(), Rc::new(definition));
-
+        
         Ok(())
     }
 
